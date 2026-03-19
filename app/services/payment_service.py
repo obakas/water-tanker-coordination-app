@@ -1,46 +1,35 @@
+from random import random
+
 from sqlalchemy import Column, ForeignKey, Integer
 from sqlalchemy.orm import Session
 from app.models.payment import Payment
 from datetime import datetime
 from app.models.batch_member import BatchMember
 from app.models.batch import Batch
-from app.services.tanker_service import assign_tanker
+from app.services.tanker_service import  assign_tanker_multi_batch
+# import random
 
 
 
+# payments_service.py
 def initiate_payment(db: Session, member_id: int):
-
     member = db.query(BatchMember).filter(BatchMember.id == member_id).first()
     if not member:
         raise Exception("Member not found")
-
-    batch = db.query(Batch).filter(Batch.id == member.batch_id).first()
-
-    amount = calculate_member_cost(batch, member.volume_liters)
-
-    # Add your commission (example: 10%)
-    commission = amount * 0.1
-    total_amount = amount + commission
-    total_amount = round(total_amount, 2)
+    
+    # Auto-calc
+    price_per_liter = 4
+    amount = member.volume_liters * price_per_liter
 
     payment = Payment(
-        user_id=member.user_id,
-        batch_id=batch.id,
-        member_id=member.id,
-        amount=total_amount,
+        member_id=member_id,
+        amount=amount,
         status="pending"
     )
-
     db.add(payment)
     db.commit()
     db.refresh(payment)
-
-    return {
-        "payment_id": payment.id,
-        "amount": total_amount,
-        "base_amount": amount,
-        "commission": commission
-    }
+    return payment
 
 def calculate_member_cost(batch, member_volume):
     price_per_liter = batch.base_price / batch.target_volume
@@ -60,6 +49,8 @@ def confirm_payment(db: Session, payment_id: int):
 
     if not member:
         raise Exception("Member not found")
+    
+    
 
     # Deadline enforcement
     if datetime.utcnow() > member.payment_deadline:
@@ -73,18 +64,42 @@ def confirm_payment(db: Session, payment_id: int):
     member.payment_status = "paid"
     member.status = "confirmed"
 
+    # to avoid double payments
+    if payment.status == "paid":
+        return {"message": "Already paid"}
+    
+    def generate_otp():
+        return str(random.randint(1000, 9999))
+
+    # generate OTP 
+    member.delivery_code = generate_otp()
+    
+    # to avoid double volume addition
+    if member.status == "confirmed":
+        return {"message": "Member already confirmed"}
+
     # Update batch volume
     batch = db.query(Batch).filter(Batch.id == member.batch_id).first()
     batch.current_volume += member.volume_liters
 
+    # to Handle missing batch (safety)
+    if not batch:
+        raise Exception("Batch not found")
+    
+    db.commit()
+
     # Check readiness
     if batch.current_volume >= batch.target_volume:
         batch.status = "ready"
-        assign_tanker(db, batch)
+        # assign_tanker(db, batch)
+        assign_tanker_multi_batch(db)
 
-    db.commit()
+    
 
     return {
         "message": "Payment confirmed",
-        "batch_status": batch.status
+        "batch_status": batch.status,
+        "delivery_code": member.delivery_code
     }
+
+

@@ -1,7 +1,9 @@
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, String, Integer, ForeignKey
+from sqlalchemy import Boolean, Column, DateTime, Float, String, Integer, ForeignKey
 from app.core.database import Base
+from datetime import datetime
+from sqlalchemy import Column, DateTime
 # import uuid
 
 class BatchMember(Base):
@@ -23,3 +25,10 @@ class BatchMember(Base):
 
     joined_at = Column(DateTime, default=datetime.utcnow)
     payment_deadline = Column(DateTime)
+    latitude = Column(Float)
+    longitude = Column(Float)
+    delivered_at = Column(DateTime, nullable=True)
+
+    customer_confirmed = Column(Boolean, default=False)
+    customer_confirmed_at = Column(DateTime, nullable=True)
+    delivery_code = Column(String, nullable=True)
