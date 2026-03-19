@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 
 class PaymentCreate(BaseModel):
-    user_id: str
-    batch_id: str
+    user_id: int
+    batch_id: int
     amount: float

@@ -7,9 +7,10 @@ class LiquidRequest(Base):
     # __table_args__ = {"extend_existing": True}
     # __tablename__ = "liquid_requests"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, ForeignKey("users.id"))
-    liquid_id = Column(String, ForeignKey("liquids.id"))
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    # liquid_id = Column(String, ForeignKey("liquids.id"))
+    liquid_id = Column(Integer) 
 
     volume_liters = Column(Integer)
     latitude = Column(Float)

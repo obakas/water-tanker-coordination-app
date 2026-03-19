@@ -23,7 +23,8 @@ def create_new_batch(db, request):
         liquid_id=request.liquid_id,
         current_volume=request.volume_liters,
         latitude=request.latitude,
-        longitude=request.longitude
+        longitude=request.longitude,
+        status="forming"
     )
     db.add(batch)
     db.commit()

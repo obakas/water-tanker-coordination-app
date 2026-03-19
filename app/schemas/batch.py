@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 
 class BatchResponse(BaseModel):
-    id: str
-    current_volume: int
-    target_volume: int
+    id: int
+    current_volume: float
+    target_volume: float
     status: str

@@ -5,8 +5,8 @@ import uuid
 class BatchMember(Base):
     __tablename__ = "batch_members"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    batch_id = Column(String, ForeignKey("batches.id"))
-    request_id = Column(String, ForeignKey("requests.id"))
-    user_id = Column(String, ForeignKey("users.id"))
+    id = Column(Integer, primary_key=True, index=True)
+    batch_id = Column(Integer, ForeignKey("batches.id"))
+    request_id = Column(Integer, ForeignKey("requests.id"))
+    user_id = Column(Integer, ForeignKey("users.id"))
     volume_liters = Column(Integer)
