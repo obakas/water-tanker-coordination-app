@@ -21,7 +21,10 @@
 #         db.commit()
 #     return payment
 
+
 from fastapi import APIRouter
+
+from app.services import batch_service
 
 router = APIRouter(prefix="/batches", tags=["batches"])
 
@@ -29,3 +32,8 @@ router = APIRouter(prefix="/batches", tags=["batches"])
 @router.get("/")
 def get_batches():
     return {"message": "Batches endpoint working"}
+
+
+# @router.post("/{batch_id}/join")
+# def join_batch(batch_id: int, payload: JoinBatchRequest, db: Session = Depends(get_db)):
+#     return batch_service.join_batch(db, batch_id, payload)

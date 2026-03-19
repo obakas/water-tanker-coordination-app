@@ -11,3 +11,4 @@ class Payment(Base):
 
     amount = Column(Float)
     status = Column(String, default="pending")  # pending, paid
+    member_id = Column(Integer, ForeignKey("batch_members.id"))

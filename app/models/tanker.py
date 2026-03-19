@@ -11,6 +11,7 @@ class Tanker(Base):
 
     capacity_liters = Column(Integer)
     liquid_id = Column(Integer)  # what it carries
+    status = Column(String, default="idle") 
 
     is_available = Column(Boolean, default=True)
     rating = Column(Integer, default=5)

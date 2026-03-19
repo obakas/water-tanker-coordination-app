@@ -28,6 +28,8 @@
 #         "current_volume": batch.current_volume
 #     }
 
+from unittest import result
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.api.deps import get_db
@@ -49,9 +51,15 @@ def create_request(payload: RequestCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(request)
 
-    batch = find_or_create_batch(db, request)
+    # batch = find_or_create_batch(db, request)
+    result = find_or_create_batch(db, request)
+
+    batch = result["batch"]
+    member = result["member"]
 
     return {
         "request_id": request.id,
-        "batch_id": batch.id
+        "batch_id": batch.id,
+        "member_id": member.id,
+        "payment_deadline": member.payment_deadline
     }

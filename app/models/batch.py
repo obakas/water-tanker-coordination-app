@@ -18,3 +18,5 @@ class Batch(Base):
     longitude = Column(Float)
 
     status = Column(String, default="forming")
+
+    base_price = Column(Float, default=40000)
