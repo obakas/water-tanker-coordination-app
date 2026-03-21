@@ -37,8 +37,9 @@ const DriverView = ({ onBack }: DriverViewProps) => {
           <DriverAvailableStep
             isOnline={isOnline}
             batch={MOCK_BATCH}
-            onAcceptBatch={acceptBatch}
-          />
+            onAcceptBatch={acceptBatch} onAcceptPriority={function (): void {
+              throw new Error("Function not implemented.");
+            } }          />
         );
       case "loading":
         return (
