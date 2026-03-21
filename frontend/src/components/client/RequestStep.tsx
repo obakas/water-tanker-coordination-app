@@ -1,35 +1,38 @@
 import { Droplets, Users, Zap, XCircle } from "lucide-react";
-import { Button } from "../ui/button";
-import { TANK_SIZES, TIME_SLOTS, BATCH_PRICE_PER_LITER, PRIORITY_PRICE_PER_LITER } from "../constants/water";
-import { RequestMode } from "../types/client";
+import { Button } from "@/components/ui/button";
+import { TANK_SIZES, TIME_SLOTS, BATCH_PRICE_PER_LITER, PRIORITY_FULL_TANKER_PRICE } from "@/constants/water";
+import type { RequestMode } from "@/types/client";
 
 interface RequestStepProps {
-  selectedSize: number | null;
-  setSelectedSize: (size: number) => void;
   requestMode: RequestMode;
-  setRequestMode: (mode: RequestMode) => void;
+  selectedSize: number | null;
   selectedTimeSlot: string | null;
-  setSelectedTimeSlot: (slot: string) => void;
-  price: number;
-  unitPrice: number;
   canContinueToPayment: boolean;
+  onSelectMode: (mode: RequestMode) => void;
+  onSelectSize: (size: number) => void;
+  onSelectTimeSlot: (slot: string) => void;
   onContinue: () => void;
   onCancel: () => void;
 }
 
-export const RequestStep = ({
-  selectedSize,
-  setSelectedSize,
+const RequestStep = ({
   requestMode,
-  setRequestMode,
+  selectedSize,
   selectedTimeSlot,
-  setSelectedTimeSlot,
-  price,
-  unitPrice,
   canContinueToPayment,
+  onSelectMode,
+  onSelectSize,
+  onSelectTimeSlot,
   onContinue,
   onCancel,
 }: RequestStepProps) => {
+  const price =
+    requestMode === "priority"
+      ? PRIORITY_FULL_TANKER_PRICE
+      : selectedSize
+      ? selectedSize * BATCH_PRICE_PER_LITER
+      : 0;
+
   return (
     <div className="space-y-6">
       <div className="text-center py-4">
@@ -42,10 +45,9 @@ export const RequestStep = ({
         </p>
       </div>
 
-      {/* Request mode selection */}
       <div className="space-y-3">
         <button
-          onClick={() => setRequestMode("batch")}
+          onClick={() => onSelectMode("batch")}
           className={`w-full rounded-xl border-2 p-4 text-left transition-all duration-200 ${
             requestMode === "batch"
               ? "border-primary bg-primary/5 shadow-md shadow-primary/10"
@@ -72,7 +74,7 @@ export const RequestStep = ({
         </button>
 
         <button
-          onClick={() => setRequestMode("priority")}
+          onClick={() => onSelectMode("priority")}
           className={`w-full rounded-xl border-2 p-4 text-left transition-all duration-200 ${
             requestMode === "priority"
               ? "border-warning bg-warning/5 shadow-md"
@@ -91,14 +93,13 @@ export const RequestStep = ({
                 </span>
               </div>
               <p className="text-sm text-muted-foreground mt-1">
-                Get faster delivery in your preferred time window. full tanker payment required.
+                Get faster delivery in your preferred time window. Full tanker payment required.
               </p>
             </div>
           </div>
         </button>
       </div>
 
-      {/* Time slot for priority */}
       {requestMode === "priority" && (
         <div className="bg-card rounded-xl border border-border p-5 space-y-4">
           <div>
@@ -112,7 +113,7 @@ export const RequestStep = ({
             {TIME_SLOTS.map((slot) => (
               <button
                 key={slot}
-                onClick={() => setSelectedTimeSlot(slot)}
+                onClick={() => onSelectTimeSlot(slot)}
                 className={`w-full rounded-lg border p-3 text-left text-sm transition-all ${
                   selectedTimeSlot === slot
                     ? "border-warning bg-warning/5 text-foreground"
@@ -126,7 +127,6 @@ export const RequestStep = ({
         </div>
       )}
 
-      {/* Tank size */}
       <div>
         <div className="mb-3">
           <h3 className="font-semibold text-foreground">How much water do you need?</h3>
@@ -137,7 +137,7 @@ export const RequestStep = ({
           {TANK_SIZES.map((size) => (
             <button
               key={size}
-              onClick={() => setSelectedSize(size)}
+              onClick={() => onSelectSize(size)}
               className={`rounded-xl border-2 p-4 text-center transition-all duration-200 active:scale-95 ${
                 selectedSize === size
                   ? "border-primary bg-primary/5 shadow-md shadow-primary/10"
@@ -155,7 +155,6 @@ export const RequestStep = ({
         </div>
       </div>
 
-      {/* Summary */}
       {selectedSize && (
         <div className="bg-card rounded-xl border border-border p-5 space-y-3">
           <div className="flex justify-between text-sm">
@@ -179,10 +178,23 @@ export const RequestStep = ({
             </span>
           </div>
 
-          <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">Rate</span>
-            <span className="font-medium text-foreground">₦{unitPrice}/liter</span>
-          </div>
+          {requestMode === "batch" ? (
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Rate</span>
+              <span className="font-medium text-foreground">
+                ₦{BATCH_PRICE_PER_LITER}/liter
+              </span>
+            </div>
+          ) : (
+            <div className="rounded-lg bg-warning/5 border border-warning/20 p-3">
+              <p className="text-sm font-medium text-foreground">
+                Priority reserves the whole tanker
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                You pay the full tanker fee even if your tank size is smaller.
+              </p>
+            </div>
+          )}
 
           <div className="border-t border-border pt-3 flex justify-between">
             <span className="font-semibold text-foreground">Total</span>
@@ -215,3 +227,5 @@ export const RequestStep = ({
     </div>
   );
 };
+
+export default RequestStep;
