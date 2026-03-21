@@ -1,10 +1,32 @@
-import { useState } from "react";
-import { Droplets, Truck, ArrowLeft } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Droplets, Truck, Sun, Moon } from "lucide-react";
 import ClientView from "@/components/ClientView";
 import DriverView from "@/components/DriverView";
 
 const Index = () => {
   const [role, setRole] = useState<"select" | "client" | "driver">("select");
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("tankup-theme") as "light" | "dark" | null;
+
+    if (savedTheme) {
+      setTheme(savedTheme);
+      document.documentElement.classList.toggle("dark", savedTheme === "dark");
+    } else {
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const initialTheme = prefersDark ? "dark" : "light";
+      setTheme(initialTheme);
+      document.documentElement.classList.toggle("dark", initialTheme === "dark");
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    const nextTheme = theme === "light" ? "dark" : "light";
+    setTheme(nextTheme);
+    localStorage.setItem("tankup-theme", nextTheme);
+    document.documentElement.classList.toggle("dark", nextTheme === "dark");
+  };
 
   if (role === "client") {
     return <ClientView onBack={() => setRole("select")} />;
@@ -15,9 +37,22 @@ const Index = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 transition-colors">
       <div className="w-full max-w-sm space-y-8">
-        {/* Logo */}
+        <div className="flex justify-end">
+          <button
+            onClick={toggleTheme}
+            className="h-11 w-11 rounded-full border border-border bg-card flex items-center justify-center text-foreground hover:scale-105 transition"
+            aria-label="Toggle theme"
+          >
+            {theme === "dark" ? (
+              <Sun className="h-5 w-5" />
+            ) : (
+              <Moon className="h-5 w-5" />
+            )}
+          </button>
+        </div>
+
         <div className="text-center space-y-3">
           <div className="w-20 h-20 rounded-3xl bg-primary flex items-center justify-center mx-auto shadow-lg shadow-primary/30">
             <Droplets className="h-10 w-10 text-primary-foreground" />
@@ -26,7 +61,6 @@ const Index = () => {
           <p className="text-muted-foreground">Get water delivered to your tank</p>
         </div>
 
-        {/* Role selection */}
         <div className="space-y-4">
           <button
             onClick={() => setRole("client")}
