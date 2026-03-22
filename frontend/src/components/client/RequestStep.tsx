@@ -1,36 +1,50 @@
 import { Droplets, Users, Zap, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { TANK_SIZES, TIME_SLOTS, BATCH_PRICE_PER_LITER, PRIORITY_FULL_TANKER_PRICE } from "@/constants/water";
+import {
+  TANK_SIZES,
+  BATCH_PRICE_PER_LITER,
+  PRIORITY_FULL_TANKER_PRICE,
+  PLATFORM_BATCH_COMMISSION_RATE,
+  PLATFORM_PRIORITY_COMMISSION_RATE,
+} from "@/constants/water";
 import type { RequestMode } from "@/types/client";
+import { formatScheduledDateTime } from "@/lib/utils";
 
 interface RequestStepProps {
   requestMode: RequestMode;
   selectedSize: number | null;
-  selectedTimeSlot: string | null;
   canContinueToPayment: boolean;
   onSelectMode: (mode: RequestMode) => void;
   onSelectSize: (size: number) => void;
-  onSelectTimeSlot: (slot: string) => void;
   onContinue: () => void;
   onCancel: () => void;
+
+  priorityMode: "asap" | "scheduled";
+  scheduledFor: string;
+  onSelectPriorityMode: (mode: "asap" | "scheduled") => void;
+  onSetScheduledFor: (value: string) => void;
 }
 
 const RequestStep = ({
   requestMode,
   selectedSize,
-  selectedTimeSlot,
   canContinueToPayment,
   onSelectMode,
   onSelectSize,
-  onSelectTimeSlot,
   onContinue,
   onCancel,
+  priorityMode,
+  scheduledFor,
+  onSelectPriorityMode,
+  onSetScheduledFor,
 }: RequestStepProps) => {
   const price =
     requestMode === "priority"
-      ? PRIORITY_FULL_TANKER_PRICE
+      ? PRIORITY_FULL_TANKER_PRICE * PLATFORM_PRIORITY_COMMISSION_RATE +
+      PRIORITY_FULL_TANKER_PRICE
       : selectedSize
-        ? selectedSize * BATCH_PRICE_PER_LITER
+        ? selectedSize * BATCH_PRICE_PER_LITER * PLATFORM_BATCH_COMMISSION_RATE +
+        selectedSize * BATCH_PRICE_PER_LITER
         : 0;
 
   return (
@@ -39,7 +53,9 @@ const RequestStep = ({
         <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-3">
           <Droplets className="h-8 w-8 text-primary" />
         </div>
-        <h2 className="text-xl font-bold text-foreground">Choose your delivery option</h2>
+        <h2 className="text-xl font-bold text-foreground">
+          Choose your delivery option
+        </h2>
         <p className="text-sm text-muted-foreground mt-1">
           Pick the plan that works best for you
         </p>
@@ -49,8 +65,8 @@ const RequestStep = ({
         <button
           onClick={() => onSelectMode("batch")}
           className={`w-full rounded-xl border-2 p-4 text-left transition-all duration-200 ${requestMode === "batch"
-              ? "border-primary bg-primary/5 shadow-md shadow-primary/10"
-              : "border-border bg-card hover:border-primary/30"
+            ? "border-primary bg-primary/5 shadow-md shadow-primary/10"
+            : "border-border bg-card hover:border-primary/30"
             }`}
         >
           <div className="flex items-start gap-3">
@@ -75,8 +91,8 @@ const RequestStep = ({
         <button
           onClick={() => onSelectMode("priority")}
           className={`w-full rounded-xl border-2 p-4 text-left transition-all duration-200 ${requestMode === "priority"
-              ? "border-warning bg-warning/5 shadow-md"
-              : "border-border bg-card hover:border-warning/30"
+            ? "border-warning bg-warning/5 shadow-md"
+            : "border-border bg-card hover:border-warning/30"
             }`}
         >
           <div className="flex items-start gap-3">
@@ -85,13 +101,16 @@ const RequestStep = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-semibold text-foreground">Priority Delivery</h3>
+                <h3 className="font-semibold text-foreground">
+                  Priority Delivery
+                </h3>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-warning/10 text-warning font-medium">
                   Premium
                 </span>
               </div>
               <p className="text-sm text-muted-foreground mt-1">
-                Get faster delivery in your preferred time window. Full tanker payment required.
+                Get faster delivery with ASAP dispatch or choose an exact delivery
+                time. Full tanker payment required.
               </p>
             </div>
           </div>
@@ -101,33 +120,89 @@ const RequestStep = ({
       {requestMode === "priority" && (
         <div className="bg-card rounded-xl border border-border p-5 space-y-4">
           <div>
-            <h3 className="font-semibold text-foreground">Select delivery period</h3>
+            <h3 className="font-semibold text-foreground">
+              Choose delivery timing
+            </h3>
             <p className="text-sm text-muted-foreground mt-1">
-              Priority requests need a preferred time window
+              Priority delivery requires either ASAP dispatch or an exact delivery
+              time.
             </p>
           </div>
 
-          <div className="space-y-2">
-            {TIME_SLOTS.map((slot) => (
-              <button
-                key={slot}
-                onClick={() => onSelectTimeSlot(slot)}
-                className={`w-full rounded-lg border p-3 text-left text-sm transition-all ${selectedTimeSlot === slot
-                    ? "border-warning bg-warning/5 text-foreground"
-                    : "border-border bg-background text-muted-foreground hover:border-warning/30"
-                  }`}
-              >
-                {slot}
-              </button>
-            ))}
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                onSelectPriorityMode("asap");
+                onSetScheduledFor("");
+              }}
+              className={`rounded-lg border p-3 text-left text-sm transition-all ${priorityMode === "asap"
+                ? "border-warning bg-warning/5 text-foreground"
+                : "border-border bg-background text-muted-foreground hover:border-warning/30"
+                }`}
+            >
+              <div className="font-medium">ASAP</div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                We calculate the earliest realistic delivery time after loading
+                and dispatch.
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onSelectPriorityMode("scheduled")}
+              className={`rounded-lg border p-3 text-left text-sm transition-all ${priorityMode === "scheduled"
+                ? "border-warning bg-warning/5 text-foreground"
+                : "border-border bg-background text-muted-foreground hover:border-warning/30"
+                }`}
+            >
+              <div className="font-medium">Schedule Time</div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Choose an exact date and time for delivery.
+              </p>
+            </button>
           </div>
+
+          {priorityMode === "asap" && (
+            <div className="rounded-lg bg-warning/5 border border-warning/20 p-3">
+              <p className="text-sm font-medium text-foreground">
+                ASAP includes a realistic loading and dispatch buffer
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Tankers usually load after a request is placed, so the system
+                calculates the earliest realistic delivery time.
+              </p>
+            </div>
+          )}
+
+          {priorityMode === "scheduled" && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">
+                Select exact delivery date and time
+              </label>
+              <input
+                type="datetime-local"
+                value={scheduledFor}
+                onChange={(e) => onSetScheduledFor(e.target.value)}
+                className="w-full rounded-lg border border-border bg-background px-3 py-3 text-sm text-foreground outline-none focus:border-warning"
+              />
+              <p className="text-xs text-muted-foreground">
+                Choose a realistic time that gives enough room for loading and
+                movement.
+              </p>
+            </div>
+          )}
         </div>
       )}
 
       <div>
         <div className="mb-3">
-          <h3 className="font-semibold text-foreground">How much water do you need?</h3>
-          <p className="text-sm text-muted-foreground mt-1">Select your tank size</p>
+          <h3 className="font-semibold text-foreground">
+            How much water do you need?
+          </h3>
+          <p className="text-sm text-muted-foreground mt-1">
+            Select your tank size
+          </p>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -136,35 +211,21 @@ const RequestStep = ({
               key={size}
               onClick={() => onSelectSize(size)}
               className={`rounded-xl border-2 p-4 text-center transition-all duration-200 active:scale-95 ${selectedSize === size
-                  ? "border-primary bg-primary/5 shadow-md shadow-primary/10"
-                  : "border-border bg-card hover:border-primary/30"
+                ? "border-primary bg-primary/5 shadow-md shadow-primary/10"
+                : "border-border bg-card hover:border-primary/30"
                 }`}
             >
-              {/* <span className="text-2xl font-bold text-foreground">{(size / 1000).toFixed(size < 1000 ? 1 : 0)}k</span> */}
               <span className="text-2xl font-bold text-foreground">
-                {Number(size / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })}k
-              </span>
-              <p className="text-xs text-muted-foreground mt-1">{size.toLocaleString()} Liters</p>
-            </button>
-          ))}
-          {/* {TANK_SIZES.map((size) => (
-            <button
-              key={size}
-              onClick={() => onSelectSize(size)}
-              className={`rounded-xl border-2 p-4 text-center transition-all duration-200 active:scale-95 ${
-                selectedSize === size
-                  ? "border-primary bg-primary/5 shadow-md shadow-primary/10"
-                  : "border-border bg-card hover:border-primary/30"
-              }`}
-            >
-              <span className="text-2xl font-bold text-foreground">
-                {(size / 1000).toFixed(size < 1000 ? 1 : 0)}k
+                {Number(size / 1000).toLocaleString(undefined, {
+                  maximumFractionDigits: 1,
+                })}
+                k
               </span>
               <p className="text-xs text-muted-foreground mt-1">
                 {size.toLocaleString()} Liters
               </p>
             </button>
-          ))} */}
+          ))}
         </div>
       </div>
 
@@ -177,10 +238,16 @@ const RequestStep = ({
             </span>
           </div>
 
-          {requestMode === "priority" && selectedTimeSlot && (
+          {requestMode === "priority" && (
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Preferred period</span>
-              <span className="font-medium text-foreground">{selectedTimeSlot}</span>
+              <span className="text-muted-foreground">Priority timing</span>
+              <span className="font-medium text-foreground">
+                {priorityMode === "asap"
+                  ? "ASAP"
+                  : scheduledFor
+                    ? formatScheduledDateTime(scheduledFor)
+                    : "Not selected"}
+              </span>
             </div>
           )}
 
@@ -190,6 +257,26 @@ const RequestStep = ({
               {selectedSize.toLocaleString()}L
             </span>
           </div>
+
+          {requestMode === "batch" ? (
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">
+                Platform Commission Rate
+              </span>
+              <span className="font-medium text-foreground">
+                {PLATFORM_BATCH_COMMISSION_RATE}%
+              </span>
+            </div>
+          ) : (
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">
+                Platform Commission Rate
+              </span>
+              <span className="font-medium text-foreground">
+                {PLATFORM_PRIORITY_COMMISSION_RATE}%
+              </span>
+            </div>
+          )}
 
           {requestMode === "batch" ? (
             <div className="flex justify-between text-sm">

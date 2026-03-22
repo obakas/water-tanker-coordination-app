@@ -4,6 +4,8 @@ import type { ClientStep, RequestMode } from "@/types/client";
 import {
   BATCH_PRICE_PER_LITER,
   PRIORITY_FULL_TANKER_PRICE,
+  PLATFORM_PRIORITY_COMMISSION_RATE,
+  PLATFORM_BATCH_COMMISSION_RATE,
 } from "@/constants/water";
 import { createWaterRequest, type UserResponse } from "@/lib/api";
 
@@ -17,7 +19,10 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
   const [step, setStep] = useState<ClientStep>("request");
   const [selectedSize, setSelectedSize] = useState<number | null>(null);
   const [requestMode, setRequestMode] = useState<RequestMode>("batch");
-  const [selectedTimeSlot, setSelectedTimeSlot] = useState<string | null>(null);
+  // const [selectedTimeSlot, setSelectedTimeSlot] = useState<string | null>(null);
+  const [priorityMode, setPriorityMode] = useState<"asap" | "scheduled">("asap");
+  const [scheduledFor, setScheduledFor] = useState<string>("");
+
   const [showHelp, setShowHelp] = useState(false);
   const [showLeaveBatchWarning, setShowLeaveBatchWarning] = useState(false);
   const [otp] = useState(() => Math.floor(1000 + Math.random() * 9000).toString());
@@ -45,15 +50,23 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     }
   }, []);
 
+
   const price =
     requestMode === "priority"
-      ? PRIORITY_FULL_TANKER_PRICE
+      ? (PRIORITY_FULL_TANKER_PRICE * PLATFORM_PRIORITY_COMMISSION_RATE) + PRIORITY_FULL_TANKER_PRICE
       : selectedSize
-      ? selectedSize * BATCH_PRICE_PER_LITER
-      : 0;
+        ? (selectedSize * BATCH_PRICE_PER_LITER * PLATFORM_BATCH_COMMISSION_RATE) + (selectedSize * BATCH_PRICE_PER_LITER)
+        : 0;
 
+  // const canContinueToPayment =
+  //   !!selectedSize && (requestMode === "batch" || !!selectedTimeSlot);
   const canContinueToPayment =
-    !!selectedSize && (requestMode === "batch" || !!selectedTimeSlot);
+    !!selectedSize &&
+    (
+      requestMode === "batch" ||
+      (requestMode === "priority" &&
+        (priorityMode === "asap" || !!scheduledFor))
+    );
 
   const copyOtp = async () => {
     try {
@@ -131,8 +144,16 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
       return;
     }
 
-    if (requestMode === "priority" && !selectedTimeSlot) {
-      toast.error("Please select a delivery period");
+    // if (requestMode === "priority" && !selectedTimeSlot) {
+    //   toast.error("Please select a delivery period");
+    //   return;
+    // }
+    if (
+      requestMode === "priority" &&
+      priorityMode === "scheduled" &&
+      !scheduledFor
+    ) {
+      toast.error("Please select an exact delivery date and time");
       return;
     }
 
@@ -146,6 +167,15 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     try {
       setIsSubmittingRequest(true);
 
+      //   const payload = {
+      //     user_id: currentUser.id,
+      //     liquid_id: 1,
+      //     volume_liters: selectedSize,
+      //     latitude: 6.5244,
+      //     longitude: 3.3792,
+      //     delivery_type: requestMode,
+      //     scheduled_time: requestMode === "priority" ? selectedTimeSlot : null,
+      //   };
       const payload = {
         user_id: currentUser.id,
         liquid_id: 1,
@@ -153,7 +183,11 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
         latitude: 6.5244,
         longitude: 3.3792,
         delivery_type: requestMode,
-        scheduled_time: requestMode === "priority" ? selectedTimeSlot : null,
+        ...(requestMode === "priority"
+          ? priorityMode === "asap"
+            ? { is_asap: true }
+            : { is_asap: false, scheduled_for: scheduledFor }
+          : {}),
       };
 
       const response = await createWaterRequest(payload);
@@ -181,7 +215,9 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
 
   const handleCancelBeforePayment = () => {
     setSelectedSize(null);
-    setSelectedTimeSlot(null);
+    // setSelectedTimeSlot(null);
+    setPriorityMode("asap");
+    setScheduledFor("");
     setRequestMode("batch");
     toast.success("Request cancelled before payment");
     // onBack();
@@ -192,7 +228,8 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     setShowLeaveBatchWarning(false);
     setStep("request");
     setSelectedSize(null);
-    setSelectedTimeSlot(null);
+    // setSelectedTimeSlot(null);
+    setScheduledFor("");
     setRequestMode("batch");
     toast.error("You left the batch. Your payment was forfeited.");
   };
@@ -200,7 +237,9 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
   const resetClientFlow = () => {
     setStep("request");
     setSelectedSize(null);
-    setSelectedTimeSlot(null);
+    // setSelectedTimeSlot(null);
+    setPriorityMode("asap");
+    setScheduledFor("");
     setRequestMode("batch");
     setShowHelp(false);
     setShowLeaveBatchWarning(false);
@@ -208,28 +247,28 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
   };
 
   const handleBackClick = () => {
-  if (step === "batch") {
-    setShowLeaveBatchWarning(true);
-    return;
-  }
+    if (step === "batch") {
+      setShowLeaveBatchWarning(true);
+      return;
+    }
 
-  goBack();
-};
+    goBack();
+  };
 
   const pageTitle =
     step === "request"
       ? "Request Water"
       : step === "payment"
-      ? "Confirm Payment"
-      : step === "batch"
-      ? "Your Batch"
-      : step === "tanker"
-      ? requestMode === "priority"
-        ? "Priority Delivery"
-        : "Tanker Assigned"
-      : step === "delivery"
-      ? "Delivery"
-      : "Completed";
+        ? "Confirm Payment"
+        : step === "batch"
+          ? "Your Batch"
+          : step === "tanker"
+            ? requestMode === "priority"
+              ? "Priority Delivery"
+              : "Tanker Assigned"
+            : step === "delivery"
+              ? "Delivery"
+              : "Completed";
 
   const handleDeliveryConfirmed = () => {
     toast.success("Delivery confirmed! Thank you.");
@@ -245,8 +284,8 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     setSelectedSize,
     requestMode,
     setRequestMode,
-    selectedTimeSlot,
-    setSelectedTimeSlot,
+    // selectedTimeSlot,
+    // setSelectedTimeSlot,
     showHelp,
     setShowHelp,
     showLeaveBatchWarning,
@@ -276,5 +315,9 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     handleAuthSuccess,
     handleLogout,
     handleBackClick,
+    priorityMode,
+    setPriorityMode,
+    scheduledFor,
+    setScheduledFor,
   };
 };

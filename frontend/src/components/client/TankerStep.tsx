@@ -1,17 +1,20 @@
 import { Truck, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { RequestMode } from "@/types/client";
+import { formatScheduledDateTime } from "@/lib/utils";
 
 interface TankerStepProps {
-    requestMode: RequestMode;
-    selectedTimeSlot: string | null;
-    selectedSize: number | null;
-    onArrived: () => void;
+  requestMode: RequestMode;
+  priorityMode?: "asap" | "scheduled";
+  scheduledFor?: string;
+  selectedSize: number;
+  onArrived: () => void;
 }
 
 const TankerStep = ({
     requestMode,
-    selectedTimeSlot,
+    priorityMode,
+    scheduledFor,
     selectedSize,
     onArrived,
 }: TankerStepProps) => {
@@ -47,10 +50,10 @@ const TankerStep = ({
                     </div>
                 </div>
 
-                {requestMode === "priority" && selectedTimeSlot && (
+                {requestMode === "priority" && formatScheduledDateTime(scheduledFor) && (
                     <div className="mb-5 rounded-xl bg-warning/5 border border-warning/20 p-4">
                         <p className="text-sm text-muted-foreground">Preferred delivery period</p>
-                        <p className="font-semibold text-foreground mt-1">{selectedTimeSlot}</p>
+                        <p className="font-semibold text-foreground mt-1">{formatScheduledDateTime(scheduledFor)}</p>
                     </div>
                 )}
 

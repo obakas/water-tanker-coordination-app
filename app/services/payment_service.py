@@ -18,7 +18,7 @@ def initiate_payment(db: Session, member_id: int):
         raise Exception("Member not found")
     
     # Auto-calc
-    price_per_liter = 4
+    price_per_liter = 5
     amount = member.volume_liters * price_per_liter
 
     payment = Payment(

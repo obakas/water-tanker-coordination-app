@@ -21,8 +21,8 @@ const ClientView = ({ onBack }: ClientViewProps) => {
     setSelectedSize,
     requestMode,
     setRequestMode,
-    selectedTimeSlot,
-    setSelectedTimeSlot,
+    // selectedTimeSlot,
+    // setSelectedTimeSlot,
     showHelp,
     setShowHelp,
     showLeaveBatchWarning,
@@ -52,6 +52,10 @@ const ClientView = ({ onBack }: ClientViewProps) => {
     handleAuthSuccess,
     handleLogout,
     handleBackClick,
+    priorityMode,
+    setPriorityMode,
+    scheduledFor,
+    setScheduledFor,
   } = useClientFlow({ onBack });
 
 
@@ -126,12 +130,13 @@ const ClientView = ({ onBack }: ClientViewProps) => {
           <RequestStep
             requestMode={requestMode}
             selectedSize={selectedSize}
-            selectedTimeSlot={selectedTimeSlot}
+            priorityMode={priorityMode}
+            scheduledFor={scheduledFor}
             canContinueToPayment={canContinueToPayment}
             onSelectMode={setRequestMode}
             onSelectSize={setSelectedSize}
-            onSelectTimeSlot={setSelectedTimeSlot}
-            // onContinue={() => setStep("payment")}
+            onSelectPriorityMode={setPriorityMode}
+            onSetScheduledFor={setScheduledFor}
             onContinue={handleContinueToPayment}
             onCancel={handleCancelBeforePayment}
           />
@@ -143,7 +148,8 @@ const ClientView = ({ onBack }: ClientViewProps) => {
             price={price}
             selectedSize={selectedSize}
             requestMode={requestMode}
-            selectedTimeSlot={selectedTimeSlot}
+            priorityMode={priorityMode}
+            scheduledFor={scheduledFor}
             onPay={handlePayment}
             onCancel={handleCancelBeforePayment}
             isLoading={isSubmittingRequest}
@@ -170,7 +176,8 @@ const ClientView = ({ onBack }: ClientViewProps) => {
         {step === "tanker" && (
           <TankerStep
             requestMode={requestMode}
-            selectedTimeSlot={selectedTimeSlot}
+            priorityMode={priorityMode}
+            scheduledFor={scheduledFor}
             selectedSize={selectedSize}
             onArrived={() => setStep("delivery")}
           />
@@ -190,7 +197,8 @@ const ClientView = ({ onBack }: ClientViewProps) => {
           <CompletedStep
             selectedSize={selectedSize}
             requestMode={requestMode}
-            selectedTimeSlot={selectedTimeSlot}
+            priorityMode={priorityMode}
+            scheduledFor={scheduledFor}
             price={price}
             otp={otp}
             onBackHome={resetClientFlow}

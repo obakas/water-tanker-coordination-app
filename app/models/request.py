@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Float, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, Float, ForeignKey, String, DateTime, Boolean
 from app.core.database import Base
 
 
@@ -13,6 +13,8 @@ class LiquidRequest(Base):
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
 
-    delivery_type = Column(String, nullable=False)   # "batch" or "priority"
-    scheduled_time = Column(String, nullable=True)   # keep as string for now
-    status = Column(String, default="pending", nullable=False)
+    delivery_type = Column(String, nullable=False)   # batch or priority
+    is_asap = Column(Boolean, default=False)         # meaningful only for priority
+    scheduled_for = Column(DateTime, nullable=True)  # meaningful only for priority
+
+    status = Column(String, default="pending")

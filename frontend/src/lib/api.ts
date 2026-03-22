@@ -1,4 +1,5 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
@@ -33,14 +34,6 @@ export async function apiRequest<T>(
     data = await response.text();
   }
 
-  // if (!response.ok) {
-  //   const message =
-  //     typeof data === "object" && data !== null && "detail" in data
-  //       ? String((data as { detail?: string }).detail)
-  //       : "Something went wrong";
-  //   throw new Error(message);
-  // }
-
   if (!response.ok) {
     let message = "Something went wrong";
 
@@ -63,6 +56,7 @@ export async function apiRequest<T>(
 }
 
 export type DeliveryType = "batch" | "priority";
+export type PriorityMode = "asap" | "scheduled";
 
 export interface CreateRequestPayload {
   user_id: number;
@@ -71,15 +65,30 @@ export interface CreateRequestPayload {
   latitude: number;
   longitude: number;
   delivery_type: DeliveryType;
-  scheduled_time?: string | null;
+
+  // Priority only
+  is_asap?: boolean;
+  scheduled_for?: string;
 }
 
 export interface CreateRequestResponse {
   request_id: number;
-  batch_id: number | null;
-  member_id: number | null;
-  payment_deadline: string | null;
   delivery_type: DeliveryType;
+
+  // Common / optional response fields
+  request_status?: string;
+  message?: string;
+
+  // Batch fields
+  batch_id?: number | null;
+  member_id?: number | null;
+  payment_deadline?: string | null;
+
+  // Priority fields
+  tanker_id?: number | null;
+  tanker_status?: string | null;
+  scheduled_for?: string | null;
+  is_asap?: boolean;
 }
 
 export function createWaterRequest(payload: CreateRequestPayload) {
@@ -88,7 +97,6 @@ export function createWaterRequest(payload: CreateRequestPayload) {
     body: payload,
   });
 }
-
 
 export interface CreateUserPayload {
   name: string;

@@ -2,12 +2,14 @@ import { CreditCard, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BATCH_PRICE_PER_LITER } from "@/constants/water";
 import type { RequestMode } from "@/types/client";
+import { formatScheduledDateTime } from "@/lib/utils";
 
 interface PaymentStepProps {
     price: number;
     selectedSize: number | null;
     requestMode: RequestMode;
-    selectedTimeSlot: string | null;
+    priorityMode: "asap" | "scheduled";
+    scheduledFor: string;
     onPay: () => void;
     onCancel: () => void;
     isLoading?: boolean;
@@ -17,7 +19,8 @@ const PaymentStep = ({
     price,
     selectedSize,
     requestMode,
-    selectedTimeSlot,
+    priorityMode,
+    scheduledFor,
     onPay,
     onCancel,
     isLoading = false,
@@ -43,10 +46,16 @@ const PaymentStep = ({
                         </span>
                     </div>
 
-                    {requestMode === "priority" && selectedTimeSlot && (
+                    {requestMode === "priority" && (
                         <div className="flex justify-between">
-                            <span className="text-muted-foreground">Delivery period</span>
-                            <span className="font-medium text-foreground">{selectedTimeSlot}</span>
+                            <span className="text-muted-foreground">Priority timing</span>
+                            <span className="font-medium text-foreground">
+                                {priorityMode === "asap"
+                                    ? "ASAP"
+                                    : scheduledFor
+                                        ? formatScheduledDateTime(scheduledFor)
+                                        : "Not selected"}
+                            </span>
                         </div>
                     )}
 
@@ -75,16 +84,17 @@ const PaymentStep = ({
                     variant="hero"
                     className="w-full h-14 rounded-xl text-base"
                     onClick={onPay}
+                    disabled={isLoading}
                 >
-                    {isLoading ? "Processing..." : "Confirm Payment"}
                     <CreditCard className="h-5 w-5 mr-2" />
-                    Pay ₦{price.toLocaleString()}
+                    {isLoading ? "Processing..." : `Pay ₦${price.toLocaleString()}`}
                 </Button>
 
                 <Button
                     variant="outline"
                     className="w-full h-12 rounded-xl text-base"
                     onClick={onCancel}
+                    disabled={isLoading}
                 >
                     <XCircle className="h-4 w-4 mr-2" />
                     Cancel Before Payment
