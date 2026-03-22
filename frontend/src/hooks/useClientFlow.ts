@@ -1,10 +1,8 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import type { ClientStep, RequestMode } from "@/types/client";
-import {
-    BATCH_PRICE_PER_LITER,
-    PRIORITY_FULL_TANKER_PRICE,
-} from "@/constants/water";
+import { BATCH_PRICE_PER_LITER, PRIORITY_FULL_TANKER_PRICE, } from "@/constants/water";
+import { createWaterRequest } from "@/lib/api";
 
 interface UseClientFlowParams {
     onBack: () => void;
@@ -18,6 +16,12 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     const [showHelp, setShowHelp] = useState(false);
     const [showLeaveBatchWarning, setShowLeaveBatchWarning] = useState(false);
     const [otp] = useState(() => Math.floor(1000 + Math.random() * 9000).toString());
+
+    const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+    const [requestId, setRequestId] = useState<number | null>(null);
+    const [batchId, setBatchId] = useState<number | null>(null);
+    const [memberId, setMemberId] = useState<number | null>(null);
+    const [paymentDeadline, setPaymentDeadline] = useState<string | null>(null);
 
     const price =
         requestMode === "priority"
@@ -65,15 +69,62 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
         }
     };
 
-    const handlePayment = () => {
-        toast.success("Payment confirmed!");
+    const handlePayment = async () => {
+        if (!selectedSize) {
+            toast.error("Please select a tank size");
+            return;
+        }
 
-        if (requestMode === "batch") {
-            setStep("batch");
-        } else {
-            setStep("tanker");
+        if (requestMode === "priority" && !selectedTimeSlot) {
+            toast.error("Please select a delivery period");
+            return;
+        }
+
+        try {
+            setIsSubmittingRequest(true);
+
+            const payload = {
+                user_id: 1,
+                liquid_id: 1,
+                volume_liters: selectedSize,
+                latitude: 6.5244,
+                longitude: 3.3792,
+                delivery_type: requestMode,
+                scheduled_time: requestMode === "priority" ? selectedTimeSlot : null,
+            };
+
+            const response = await createWaterRequest(payload);
+
+            setRequestId(response.request_id);
+            setBatchId(response.batch_id);
+            setMemberId(response.member_id);
+            setPaymentDeadline(response.payment_deadline);
+
+            toast.success("Payment confirmed and request created!");
+
+            if (response.delivery_type === "batch") {
+                setStep("batch");
+            } else {
+                setStep("tanker");
+            }
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : "Failed to create request";
+            toast.error(message);
+        } finally {
+            setIsSubmittingRequest(false);
         }
     };
+
+    // const handlePayment = () => {
+    //     toast.success("Payment confirmed!");
+
+    //     if (requestMode === "batch") {
+    //         setStep("batch");
+    //     } else {
+    //         setStep("tanker");
+    //     }
+    // };
 
     const handleCancelBeforePayment = () => {
         setSelectedSize(null);
@@ -146,6 +197,11 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
         handleCancelBeforePayment,
         handleLeaveBatch,
         resetClientFlow,
-        handleDeliveryConfirmed
+        handleDeliveryConfirmed,
+        isSubmittingRequest,
+        requestId,
+        batchId,
+        memberId,
+        paymentDeadline,
     };
 };

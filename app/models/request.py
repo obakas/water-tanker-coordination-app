@@ -1,19 +1,18 @@
-from sqlalchemy import Column, String, Integer, Float, ForeignKey
+from sqlalchemy import Column, String, Integer, Float, ForeignKey, DateTime
 from app.core.database import Base
-import uuid
+
 
 class LiquidRequest(Base):
     __tablename__ = "requests"
-    # __table_args__ = {"extend_existing": True}
-    # __tablename__ = "liquid_requests"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    # liquid_id = Column(String, ForeignKey("liquids.id"))
-    liquid_id = Column(Integer) 
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    liquid_id = Column(Integer, nullable=False)
 
-    volume_liters = Column(Integer)
-    latitude = Column(Float)
-    longitude = Column(Float)
+    volume_liters = Column(Integer, nullable=False)
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
 
-    status = Column(String, default="pending")
+    delivery_type = Column(String, nullable=False)   # "batch" or "priority"
+    scheduled_time = Column(String, nullable=True)   # keep as string for now
+    status = Column(String, default="pending", nullable=False)

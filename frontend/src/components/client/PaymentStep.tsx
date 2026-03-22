@@ -10,6 +10,7 @@ interface PaymentStepProps {
     selectedTimeSlot: string | null;
     onPay: () => void;
     onCancel: () => void;
+    isLoading?: boolean;
 }
 
 const PaymentStep = ({
@@ -19,6 +20,7 @@ const PaymentStep = ({
     selectedTimeSlot,
     onPay,
     onCancel,
+    isLoading = false,
 }: PaymentStepProps) => {
     return (
         <div className="space-y-6">
@@ -74,6 +76,7 @@ const PaymentStep = ({
                     className="w-full h-14 rounded-xl text-base"
                     onClick={onPay}
                 >
+                    {isLoading ? "Processing..." : "Confirm Payment"}
                     <CreditCard className="h-5 w-5 mr-2" />
                     Pay ₦{price.toLocaleString()}
                 </Button>

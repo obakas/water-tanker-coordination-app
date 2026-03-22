@@ -8,6 +8,9 @@ interface BatchStepProps {
     onCopyOtp: () => void;
     onViewTanker: () => void;
     onLeaveBatch: () => void;
+    batchId?: number | null;
+    requestId?: number | null;
+    paymentDeadline?: string | null;
 }
 
 const BatchStep = ({

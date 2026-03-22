@@ -36,6 +36,11 @@ const ClientView = ({ onBack }: ClientViewProps) => {
     handleLeaveBatch,
     resetClientFlow,
     handleDeliveryConfirmed,
+    isSubmittingRequest,
+    requestId,
+    batchId,
+    memberId,
+    paymentDeadline,
   } = useClientFlow({ onBack });
 
 
@@ -86,6 +91,7 @@ const ClientView = ({ onBack }: ClientViewProps) => {
             selectedTimeSlot={selectedTimeSlot}
             onPay={handlePayment}
             onCancel={handleCancelBeforePayment}
+            isLoading={isSubmittingRequest}
           />
         )}
 
@@ -98,6 +104,9 @@ const ClientView = ({ onBack }: ClientViewProps) => {
             onCopyOtp={copyOtp}
             onViewTanker={() => setStep("tanker")}
             onLeaveBatch={() => setShowLeaveBatchWarning(true)}
+            batchId={batchId}
+            requestId={requestId}
+            paymentDeadline={paymentDeadline}
           />
         )}
 
