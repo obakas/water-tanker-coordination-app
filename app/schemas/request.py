@@ -10,9 +10,10 @@ class RequestCreate(BaseModel):
     longitude: float
     delivery_type: Literal["batch", "priority"]
     scheduled_time: Optional[str] = None
+    # delivery_period: Optional[str] = None
 
-    @model_validator(mode="after")
-    def validate_scheduled_time(self):
-        if self.delivery_type == "priority" and not self.scheduled_time:
-            raise ValueError("scheduled_time is required for priority delivery")
-        return self
+    # @model_validator(mode="after")
+    # def validate_scheduled_time(self):
+    #     if self.delivery_type == "priority" and not self.scheduled_time:
+    #         raise ValueError("scheduled_time is required for priority delivery")
+    #     return self

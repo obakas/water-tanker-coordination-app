@@ -1,4 +1,4 @@
-import { ArrowLeft, CircleHelp } from "lucide-react";
+import { ArrowLeft, CircleHelp, LogOut, UserCircle2 } from "lucide-react";
 import RequestStep from "@/components/client/RequestStep";
 import PaymentStep from "@/components/client/PaymentStep";
 import BatchStep from "@/components/client/BatchStep";
@@ -9,6 +9,8 @@ import HelpModal from "@/components/client/HelpModal";
 import LeaveBatchWarningModal from "@/components/client/LeaveBatchWarningModal";
 import { useClientFlow } from "@/hooks/useClientFlow";
 import type { ClientViewProps } from "@/types/client";
+import AuthModal from "@/components/client/AuthModal";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 
 
 const ClientView = ({ onBack }: ClientViewProps) => {
@@ -41,6 +43,15 @@ const ClientView = ({ onBack }: ClientViewProps) => {
     batchId,
     memberId,
     paymentDeadline,
+    currentUser,
+    showAuthModal,
+    setShowAuthModal,
+    authMode,
+    setAuthMode,
+    handleContinueToPayment,
+    handleAuthSuccess,
+    handleLogout,
+    handleBackClick,
   } = useClientFlow({ onBack });
 
 
@@ -49,20 +60,63 @@ const ClientView = ({ onBack }: ClientViewProps) => {
       {/* Header */}
       <header className="sticky top-0 z-40 bg-card/80 backdrop-blur-md border-b border-border">
         <div className="flex items-center justify-between px-4 h-14">
+
+          {/* LEFT: back + title */}
           <div className="flex items-center gap-3">
-            <button onClick={goBack} className="text-foreground">
+            <button onClick={handleBackClick} className={`text-foreground ${step === "batch" ? "text-red-500" : ""
+              }`}
+            >
               <ArrowLeft className="h-5 w-5" />
             </button>
             <h1 className="font-bold text-foreground text-lg">{pageTitle}</h1>
           </div>
 
-          <button
-            onClick={() => setShowHelp(true)}
-            className="h-9 w-9 rounded-full border border-border bg-card flex items-center justify-center text-foreground hover:border-primary/30 transition-colors"
-            aria-label="Help"
-          >
-            <CircleHelp className="h-4.5 w-4.5" />
-          </button>
+          {/* RIGHT: user OR sign in + help */}
+          <div className="flex items-center gap-3">
+
+            {currentUser ? (
+              <>
+                <div className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2">
+                  <UserCircle2 className="h-4 w-4 text-muted-foreground" />
+                  <div className="leading-tight">
+                    <p className="text-sm font-medium text-foreground">
+                      {currentUser.name}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {currentUser.phone}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm hover:bg-muted"
+                >
+                  <LogOut className="h-4 w-4" />
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => {
+                  setAuthMode("login");
+                  setShowAuthModal(true);
+                }}
+                className="rounded-xl border border-border px-3 py-2 text-sm hover:bg-muted"
+              >
+                Sign In
+              </button>
+            )}
+
+            <button
+              onClick={() => setShowHelp(true)}
+              className="h-9 w-9 rounded-full border border-border bg-card flex items-center justify-center text-foreground hover:border-primary/30 transition-colors"
+            >
+              <CircleHelp className="h-4.5 w-4.5" />
+            </button>
+
+            <ThemeToggle />
+
+          </div>
         </div>
       </header>
 
@@ -77,7 +131,8 @@ const ClientView = ({ onBack }: ClientViewProps) => {
             onSelectMode={setRequestMode}
             onSelectSize={setSelectedSize}
             onSelectTimeSlot={setSelectedTimeSlot}
-            onContinue={() => setStep("payment")}
+            // onContinue={() => setStep("payment")}
+            onContinue={handleContinueToPayment}
             onCancel={handleCancelBeforePayment}
           />
         )}
@@ -155,8 +210,17 @@ const ClientView = ({ onBack }: ClientViewProps) => {
         />
       )}
 
+      {showAuthModal && (
+        <AuthModal
+          mode={authMode}
+          onClose={() => setShowAuthModal(false)}
+          onSuccess={handleAuthSuccess}
+          onModeChange={setAuthMode}
+        />
+      )}
     </div >
   );
-};
+}
 
 export default ClientView;
+

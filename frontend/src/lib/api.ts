@@ -1,5 +1,4 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
-// const API_BASE_URL = import.meta.
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
@@ -34,11 +33,29 @@ export async function apiRequest<T>(
     data = await response.text();
   }
 
+  // if (!response.ok) {
+  //   const message =
+  //     typeof data === "object" && data !== null && "detail" in data
+  //       ? String((data as { detail?: string }).detail)
+  //       : "Something went wrong";
+  //   throw new Error(message);
+  // }
+
   if (!response.ok) {
-    const message =
-      typeof data === "object" && data !== null && "detail" in data
-        ? String((data as { detail?: string }).detail)
-        : "Something went wrong";
+    let message = "Something went wrong";
+
+    if (typeof data === "object" && data !== null && "detail" in data) {
+      const detail = (data as { detail?: unknown }).detail;
+
+      if (Array.isArray(detail)) {
+        message = detail
+          .map((item: any) => `${item.loc?.join(".")}: ${item.msg}`)
+          .join(" | ");
+      } else if (typeof detail === "string") {
+        message = detail;
+      }
+    }
+
     throw new Error(message);
   }
 
@@ -67,6 +84,38 @@ export interface CreateRequestResponse {
 
 export function createWaterRequest(payload: CreateRequestPayload) {
   return apiRequest<CreateRequestResponse>("/requests/", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+
+export interface CreateUserPayload {
+  name: string;
+  phone: string;
+  address: string;
+}
+
+export interface UserResponse {
+  id: number;
+  name: string;
+  phone: string;
+  address: string;
+}
+
+export function createUser(payload: CreateUserPayload) {
+  return apiRequest<UserResponse>("/users/", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export interface LoginUserPayload {
+  phone: string;
+}
+
+export function loginUser(payload: LoginUserPayload) {
+  return apiRequest<UserResponse>("/auth/login", {
     method: "POST",
     body: payload,
   });

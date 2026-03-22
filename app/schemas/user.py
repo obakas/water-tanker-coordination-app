@@ -5,12 +5,14 @@ class UserBase(BaseModel):
     name: str
     phone: str
     address: str
-    email: str
-    password: str
+    # email: str
+    # password: str
 
 
 class UserCreate(UserBase):
-    pass
+    name: str
+    phone: str
+    address: str
 
 
 class UserOut(UserBase):

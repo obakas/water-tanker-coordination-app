@@ -1,207 +1,280 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { ClientStep, RequestMode } from "@/types/client";
-import { BATCH_PRICE_PER_LITER, PRIORITY_FULL_TANKER_PRICE, } from "@/constants/water";
-import { createWaterRequest } from "@/lib/api";
+import {
+  BATCH_PRICE_PER_LITER,
+  PRIORITY_FULL_TANKER_PRICE,
+} from "@/constants/water";
+import { createWaterRequest, type UserResponse } from "@/lib/api";
 
 interface UseClientFlowParams {
-    onBack: () => void;
+  onBack: () => void;
 }
 
+type AuthMode = "signup" | "login";
+
 export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
-    const [step, setStep] = useState<ClientStep>("request");
-    const [selectedSize, setSelectedSize] = useState<number | null>(null);
-    const [requestMode, setRequestMode] = useState<RequestMode>("batch");
-    const [selectedTimeSlot, setSelectedTimeSlot] = useState<string | null>(null);
-    const [showHelp, setShowHelp] = useState(false);
-    const [showLeaveBatchWarning, setShowLeaveBatchWarning] = useState(false);
-    const [otp] = useState(() => Math.floor(1000 + Math.random() * 9000).toString());
+  const [step, setStep] = useState<ClientStep>("request");
+  const [selectedSize, setSelectedSize] = useState<number | null>(null);
+  const [requestMode, setRequestMode] = useState<RequestMode>("batch");
+  const [selectedTimeSlot, setSelectedTimeSlot] = useState<string | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
+  const [showLeaveBatchWarning, setShowLeaveBatchWarning] = useState(false);
+  const [otp] = useState(() => Math.floor(1000 + Math.random() * 9000).toString());
 
-    const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
-    const [requestId, setRequestId] = useState<number | null>(null);
-    const [batchId, setBatchId] = useState<number | null>(null);
-    const [memberId, setMemberId] = useState<number | null>(null);
-    const [paymentDeadline, setPaymentDeadline] = useState<string | null>(null);
+  const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+  const [requestId, setRequestId] = useState<number | null>(null);
+  const [batchId, setBatchId] = useState<number | null>(null);
+  const [memberId, setMemberId] = useState<number | null>(null);
+  const [paymentDeadline, setPaymentDeadline] = useState<string | null>(null);
 
-    const price =
-        requestMode === "priority"
-            ? PRIORITY_FULL_TANKER_PRICE
-            : selectedSize
-                ? selectedSize * BATCH_PRICE_PER_LITER
-                : 0;
+  const [currentUser, setCurrentUser] = useState<UserResponse | null>(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState<AuthMode>("signup");
 
-    const canContinueToPayment =
-        !!selectedSize && (requestMode === "batch" || !!selectedTimeSlot);
+  useEffect(() => {
+    const savedUser = localStorage.getItem("water_user");
 
-    const copyOtp = () => {
-        navigator.clipboard.writeText(otp);
-        toast.success("OTP copied to clipboard");
-    };
+    if (!savedUser) return;
 
-    const goBack = () => {
-        if (step === "request") {
-            onBack();
-            return;
-        }
+    try {
+      const parsedUser: UserResponse = JSON.parse(savedUser);
+      setCurrentUser(parsedUser);
+    } catch {
+      localStorage.removeItem("water_user");
+    }
+  }, []);
 
-        if (step === "payment") {
-            setStep("request");
-            return;
-        }
+  const price =
+    requestMode === "priority"
+      ? PRIORITY_FULL_TANKER_PRICE
+      : selectedSize
+      ? selectedSize * BATCH_PRICE_PER_LITER
+      : 0;
 
-        if (step === "batch") {
-            setStep("payment");
-            return;
-        }
+  const canContinueToPayment =
+    !!selectedSize && (requestMode === "batch" || !!selectedTimeSlot);
 
-        if (step === "tanker") {
-            setStep(requestMode === "batch" ? "batch" : "payment");
-            return;
-        }
+  const copyOtp = async () => {
+    try {
+      await navigator.clipboard.writeText(otp);
+      toast.success("OTP copied to clipboard");
+    } catch {
+      toast.error("Failed to copy OTP");
+    }
+  };
 
-        if (step === "delivery") {
-            setStep("tanker");
-            return;
-        }
+  const handleContinueToPayment = () => {
+    if (!canContinueToPayment) {
+      toast.error("Please complete your request details first");
+      return;
+    }
 
-        if (step === "completed") {
-            setStep("delivery");
-        }
-    };
+    if (!currentUser) {
+      setAuthMode("login");
+      setShowAuthModal(true);
+      return;
+    }
 
-    const handlePayment = async () => {
-        if (!selectedSize) {
-            toast.error("Please select a tank size");
-            return;
-        }
+    setStep("payment");
+  };
 
-        if (requestMode === "priority" && !selectedTimeSlot) {
-            toast.error("Please select a delivery period");
-            return;
-        }
+  const handleAuthSuccess = (user: UserResponse) => {
+    setCurrentUser(user);
+    localStorage.setItem("water_user", JSON.stringify(user));
+    setShowAuthModal(false);
+    toast.success(`Welcome, ${user.name}!`);
+    setStep("payment");
+  };
 
-        try {
-            setIsSubmittingRequest(true);
+  const handleLogout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem("water_user");
+    toast.success("Logged out");
+    setStep("request");
+  };
 
-            const payload = {
-                user_id: 1,
-                liquid_id: 1,
-                volume_liters: selectedSize,
-                latitude: 6.5244,
-                longitude: 3.3792,
-                delivery_type: requestMode,
-                scheduled_time: requestMode === "priority" ? selectedTimeSlot : null,
-            };
+  const goBack = () => {
+    if (step === "request") {
+      onBack();
+      return;
+    }
 
-            const response = await createWaterRequest(payload);
+    if (step === "payment") {
+      setStep("request");
+      return;
+    }
 
-            setRequestId(response.request_id);
-            setBatchId(response.batch_id);
-            setMemberId(response.member_id);
-            setPaymentDeadline(response.payment_deadline);
+    if (step === "batch") {
+      setStep("payment");
+      return;
+    }
 
-            toast.success("Payment confirmed and request created!");
+    if (step === "tanker") {
+      setStep(requestMode === "batch" ? "batch" : "payment");
+      return;
+    }
 
-            if (response.delivery_type === "batch") {
-                setStep("batch");
-            } else {
-                setStep("tanker");
-            }
-        } catch (error) {
-            const message =
-                error instanceof Error ? error.message : "Failed to create request";
-            toast.error(message);
-        } finally {
-            setIsSubmittingRequest(false);
-        }
-    };
+    if (step === "delivery") {
+      setStep("tanker");
+      return;
+    }
 
-    // const handlePayment = () => {
-    //     toast.success("Payment confirmed!");
+    if (step === "completed") {
+      setStep("delivery");
+    }
+  };
 
-    //     if (requestMode === "batch") {
-    //         setStep("batch");
-    //     } else {
-    //         setStep("tanker");
-    //     }
-    // };
+  const handlePayment = async () => {
+    if (!selectedSize) {
+      toast.error("Please select a tank size");
+      return;
+    }
 
-    const handleCancelBeforePayment = () => {
-        setSelectedSize(null);
-        setSelectedTimeSlot(null);
-        setRequestMode("batch");
-        toast.success("Request cancelled before payment");
-        onBack();
-    };
+    if (requestMode === "priority" && !selectedTimeSlot) {
+      toast.error("Please select a delivery period");
+      return;
+    }
 
-    const handleLeaveBatch = () => {
-        setShowLeaveBatchWarning(false);
-        setStep("request");
-        setSelectedSize(null);
-        setSelectedTimeSlot(null);
-        setRequestMode("batch");
-        toast.error("You left the batch. Your payment was forfeited.");
-    };
+    if (!currentUser) {
+      toast.error("Please sign up or log in before making payment");
+      setAuthMode("signup");
+      setShowAuthModal(true);
+      return;
+    }
 
-    const resetClientFlow = () => {
-        setStep("request");
-        setSelectedSize(null);
-        setSelectedTimeSlot(null);
-        setRequestMode("batch");
-        setShowHelp(false);
-        setShowLeaveBatchWarning(false);
-        onBack();
-    };
+    try {
+      setIsSubmittingRequest(true);
 
-    const pageTitle =
-        step === "request"
-            ? "Request Water"
-            : step === "payment"
-                ? "Confirm Payment"
-                : step === "batch"
-                    ? "Your Batch"
-                    : step === "tanker"
-                        ? requestMode === "priority"
-                            ? "Priority Delivery"
-                            : "Tanker Assigned"
-                        : step === "delivery"
-                            ? "Delivery"
-                            : "Completed";
+      const payload = {
+        user_id: currentUser.id,
+        liquid_id: 1,
+        volume_liters: selectedSize,
+        latitude: 6.5244,
+        longitude: 3.3792,
+        delivery_type: requestMode,
+        scheduled_time: requestMode === "priority" ? selectedTimeSlot : null,
+      };
 
+      const response = await createWaterRequest(payload);
 
-    const handleDeliveryConfirmed = () => {
-        toast.success("Delivery confirmed! Thank you.");
-        setStep("completed");
-    };
+      setRequestId(response.request_id);
+      setBatchId(response.batch_id ?? null);
+      setMemberId(response.member_id ?? null);
+      setPaymentDeadline(response.payment_deadline ?? null);
 
-    return {
-        step,
-        setStep,
-        selectedSize,
-        setSelectedSize,
-        requestMode,
-        setRequestMode,
-        selectedTimeSlot,
-        setSelectedTimeSlot,
-        showHelp,
-        setShowHelp,
-        showLeaveBatchWarning,
-        setShowLeaveBatchWarning,
-        otp,
-        price,
-        canContinueToPayment,
-        pageTitle,
-        copyOtp,
-        goBack,
-        handlePayment,
-        handleCancelBeforePayment,
-        handleLeaveBatch,
-        resetClientFlow,
-        handleDeliveryConfirmed,
-        isSubmittingRequest,
-        requestId,
-        batchId,
-        memberId,
-        paymentDeadline,
-    };
+      toast.success("Payment confirmed and request created!");
+
+      if (requestMode === "batch") {
+        setStep("batch");
+      } else {
+        setStep("tanker");
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to create request";
+      toast.error(message);
+    } finally {
+      setIsSubmittingRequest(false);
+    }
+  };
+
+  const handleCancelBeforePayment = () => {
+    setSelectedSize(null);
+    setSelectedTimeSlot(null);
+    setRequestMode("batch");
+    toast.success("Request cancelled before payment");
+    // onBack();
+    setStep("request");
+  };
+
+  const handleLeaveBatch = () => {
+    setShowLeaveBatchWarning(false);
+    setStep("request");
+    setSelectedSize(null);
+    setSelectedTimeSlot(null);
+    setRequestMode("batch");
+    toast.error("You left the batch. Your payment was forfeited.");
+  };
+
+  const resetClientFlow = () => {
+    setStep("request");
+    setSelectedSize(null);
+    setSelectedTimeSlot(null);
+    setRequestMode("batch");
+    setShowHelp(false);
+    setShowLeaveBatchWarning(false);
+    onBack();
+  };
+
+  const handleBackClick = () => {
+  if (step === "batch") {
+    setShowLeaveBatchWarning(true);
+    return;
+  }
+
+  goBack();
+};
+
+  const pageTitle =
+    step === "request"
+      ? "Request Water"
+      : step === "payment"
+      ? "Confirm Payment"
+      : step === "batch"
+      ? "Your Batch"
+      : step === "tanker"
+      ? requestMode === "priority"
+        ? "Priority Delivery"
+        : "Tanker Assigned"
+      : step === "delivery"
+      ? "Delivery"
+      : "Completed";
+
+  const handleDeliveryConfirmed = () => {
+    toast.success("Delivery confirmed! Thank you.");
+    setStep("completed");
+  };
+
+  // const [theme, setTheme] = useState<"light" | "dark">("light");
+
+  return {
+    step,
+    setStep,
+    selectedSize,
+    setSelectedSize,
+    requestMode,
+    setRequestMode,
+    selectedTimeSlot,
+    setSelectedTimeSlot,
+    showHelp,
+    setShowHelp,
+    showLeaveBatchWarning,
+    setShowLeaveBatchWarning,
+    otp,
+    price,
+    canContinueToPayment,
+    pageTitle,
+    copyOtp,
+    goBack,
+    handleContinueToPayment,
+    handlePayment,
+    handleCancelBeforePayment,
+    handleLeaveBatch,
+    resetClientFlow,
+    handleDeliveryConfirmed,
+    isSubmittingRequest,
+    requestId,
+    batchId,
+    memberId,
+    paymentDeadline,
+    currentUser,
+    showAuthModal,
+    setShowAuthModal,
+    authMode,
+    setAuthMode,
+    handleAuthSuccess,
+    handleLogout,
+    handleBackClick,
+  };
 };

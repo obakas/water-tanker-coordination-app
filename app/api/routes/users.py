@@ -9,6 +9,7 @@ router = APIRouter(prefix="/users", tags=["Users"])
 
 @router.post("/", response_model=UserOut)
 def create_user(payload: UserCreate, db: Session = Depends(get_db)):
+    print("PAYLOAD RECEIVED:", payload.dict())
     existing_user = db.query(User).filter(User.phone == payload.phone).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Phone number already registered")

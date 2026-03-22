@@ -1,6 +1,7 @@
 from app.models.batch import Batch
 from app.models.batch_member import BatchMember
 from app.models.tanker import Tanker
+from fastapi import HTTPException
 
 
 def handle_priority_request(db, request):
@@ -12,7 +13,10 @@ def handle_priority_request(db, request):
     )
 
     if not tanker:
-        raise ValueError("No available tanker found for priority delivery")
+        raise HTTPException(
+            status_code=404,
+            detail="No available tanker found for priority delivery"
+        )
 
     tanker.is_available = False
     tanker.status = "assigned"
