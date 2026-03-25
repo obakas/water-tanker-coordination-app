@@ -1,42 +1,84 @@
-import { ArrowLeft } from "lucide-react";
-import { DriverStep } from "@/types/driver";
+import { ArrowLeft, CircleHelp, LogOut, Truck } from "lucide-react";
+import type { DriverStep } from "@/types/driver";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 
 interface DriverHeaderProps {
   step: DriverStep;
-  isOnline: boolean;
+  driverName?: string;
   onBack: () => void;
-  onToggleOnline: () => void;
+  onLogout: () => void;
+  onOpenHelp: () => void;
 }
 
 const stepTitles: Record<DriverStep, string> = {
+  offline: "Driver Dashboard",
   available: "Driver Dashboard",
-  batches: "Available Batches",
+  assigned: "New Assignment",
   loading: "Loading Water",
   delivering: "Deliveries",
+  arrived: "Arrival Confirmation",
   completed: "Trip Complete",
 };
 
-export const DriverHeader = ({ step, isOnline, onBack, onToggleOnline }: DriverHeaderProps) => {
+export const DriverHeader = ({
+  step,
+  driverName,
+  onBack,
+  onLogout,
+  onOpenHelp,
+}: DriverHeaderProps) => {
   return (
-    <header className="sticky top-0 z-40 bg-card/80 backdrop-blur-md border-b border-border">
-      <div className="flex items-center justify-between px-4 h-14">
-        <div className="flex items-center gap-3">
-          <button onClick={step === "available" ? onBack : onBack} className="text-foreground">
+    <header className="sticky top-0 z-40 border-b border-border bg-card/80 backdrop-blur-md">
+      <div className="flex h-16 items-center justify-between px-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <button
+            onClick={onBack}
+            className="text-foreground transition-opacity hover:opacity-80"
+            aria-label="Go back"
+            type="button"
+          >
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <h1 className="font-bold text-foreground text-lg">{stepTitles[step]}</h1>
+
+          <div className="min-w-0">
+            <h1 className="truncate text-lg font-bold text-foreground">
+              {stepTitles[step]}
+            </h1>
+
+            {driverName && (
+              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                <Truck className="h-3.5 w-3.5" />
+                <span className="truncate">{driverName}</span>
+              </div>
+            )}
+          </div>
         </div>
-        {step === "available" && (
+
+        <div className="flex items-center gap-2">
           <button
-            onClick={onToggleOnline}
-            className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${
-              isOnline ? "bg-success text-success-foreground" : "bg-secondary text-muted-foreground"
-            }`}
+            onClick={onOpenHelp}
+            type="button"
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-foreground transition-colors hover:border-primary/30 hover:bg-muted"
+            aria-label="Help"
+            title="Help"
           >
-            {isOnline ? "Online" : "Offline"}
+            <CircleHelp className="h-4.5 w-4.5" />
           </button>
-        )}
+
+          <button
+            onClick={onLogout}
+            type="button"
+            className="rounded-full border border-border p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            aria-label="Logout"
+            title="Logout"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
+
+          <ThemeToggle />
+        </div>
       </div>
     </header>
   );
 };
+

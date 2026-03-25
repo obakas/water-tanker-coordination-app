@@ -1,27 +1,35 @@
 import { CheckCircle2 } from "lucide-react";
-import { DeliveryMember } from "@/types/driver";
+import type { DriverStop } from "@/types/driver";
 
 interface DeliveryListProps {
-  deliveries: DeliveryMember[];
+  deliveries: DriverStop[];
   activeDeliveryIdx: number;
 }
 
-export const DeliveryList = ({ deliveries, activeDeliveryIdx }: DeliveryListProps) => {
+export const DeliveryList = ({
+  deliveries,
+  activeDeliveryIdx,
+}: DeliveryListProps) => {
   return (
-    <div className="bg-card rounded-xl border border-border p-5">
-      <h3 className="font-semibold text-foreground mb-3">All Deliveries</h3>
+    <div className="rounded-xl border border-border bg-card p-5">
+      <h3 className="mb-3 font-semibold text-foreground">All Deliveries</h3>
+
       <div className="space-y-3">
         {deliveries.map((d, i) => (
           <div
-            key={i}
-            className={`flex items-center justify-between text-sm p-2 rounded-lg ${
+            key={d.id}
+            className={`flex items-center justify-between rounded-lg p-2 text-sm ${
               i === activeDeliveryIdx && !d.delivered ? "bg-primary/5" : ""
             }`}
           >
             <div className="flex items-center gap-2">
               <div
-                className={`w-6 h-6 rounded-full flex items-center justify-center ${
-                  d.delivered ? "bg-success" : i === activeDeliveryIdx ? "bg-primary" : "bg-secondary"
+                className={`flex h-6 w-6 items-center justify-center rounded-full ${
+                  d.delivered
+                    ? "bg-success"
+                    : i === activeDeliveryIdx
+                    ? "bg-primary"
+                    : "bg-secondary"
                 }`}
               >
                 {d.delivered ? (
@@ -29,24 +37,34 @@ export const DeliveryList = ({ deliveries, activeDeliveryIdx }: DeliveryListProp
                 ) : (
                   <span
                     className={`text-xs font-bold ${
-                      i === activeDeliveryIdx ? "text-primary-foreground" : "text-muted-foreground"
+                      i === activeDeliveryIdx
+                        ? "text-primary-foreground"
+                        : "text-muted-foreground"
                     }`}
                   >
                     {i + 1}
                   </span>
                 )}
               </div>
+
               <div>
-                <span className="text-foreground font-medium">{d.name}</span>
-                <span className="text-muted-foreground ml-2">{d.liters.toLocaleString()}L</span>
+                <span className="font-medium text-foreground">{d.name}</span>
+                <span className="ml-2 text-muted-foreground">
+                  {d.volumeLiters.toLocaleString()}L
+                </span>
               </div>
             </div>
+
             <span
               className={`text-xs font-medium ${
                 d.delivered ? "text-success" : "text-muted-foreground"
               }`}
             >
-              {d.delivered ? "Done" : i === activeDeliveryIdx ? "Active" : "Pending"}
+              {d.delivered
+                ? "Done"
+                : i === activeDeliveryIdx
+                ? "Active"
+                : "Pending"}
             </span>
           </div>
         ))}
@@ -54,3 +72,5 @@ export const DeliveryList = ({ deliveries, activeDeliveryIdx }: DeliveryListProp
     </div>
   );
 };
+
+

@@ -1,55 +1,90 @@
 import { CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Batch, DeliveryMember } from "@/types/driver";
+import type { DriverJob, DriverStop } from "@/types/driver";
 
 interface DriverCompletedStepProps {
-  batch: Batch;
-  deliveries: DeliveryMember[];
+  job: DriverJob;
+  deliveries: DriverStop[];
   onBackToDashboard: () => void;
 }
 
-export const DriverCompletedStep = ({ batch, deliveries, onBackToDashboard }: DriverCompletedStepProps) => {
+export const DriverCompletedStep = ({
+  job,
+  deliveries,
+  onBackToDashboard,
+}: DriverCompletedStepProps) => {
   return (
-    <div className="space-y-6 text-center py-10">
-      <div className="w-24 h-24 rounded-full bg-success/10 flex items-center justify-center mx-auto">
+    <div className="space-y-6 py-10 text-center">
+      <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-success/10">
         <CheckCircle2 className="h-12 w-12 text-success" />
       </div>
+
       <div>
-        <h2 className="text-2xl font-bold text-foreground">Trip Complete!</h2>
-        <p className="text-muted-foreground mt-2">All {deliveries.length} deliveries confirmed</p>
+        <h2 className="text-2xl font-bold text-foreground">Delivery Complete!</h2>
+        <p className="mt-2 text-muted-foreground">
+          {deliveries.length} {deliveries.length === 1 ? "delivery" : "deliveries"} confirmed
+        </p>
       </div>
 
-      <div className="bg-success/5 rounded-xl border border-success/20 p-6">
-        <p className="text-sm text-muted-foreground">You earned</p>
-        <p className="text-4xl font-extrabold text-success">{batch.earnings}</p>
-        <p className="text-xs text-muted-foreground mt-2">Payment has been sent to your account</p>
+      <div className="rounded-xl border border-success/20 bg-success/5 p-6">
+        <p className="text-sm text-muted-foreground">Total delivered</p>
+        <p className="text-4xl font-extrabold text-success">
+          {(job.totalVolumeLiters ?? 0).toLocaleString()}L
+        </p>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Job marked complete successfully
+        </p>
       </div>
 
-      <div className="bg-card rounded-xl border border-border p-5 text-left">
-        <h3 className="font-semibold text-foreground mb-3">Trip Summary</h3>
+      <div className="rounded-xl border border-border bg-card p-5 text-left">
+        <h3 className="mb-3 font-semibold text-foreground">Trip Summary</h3>
+
         <div className="space-y-2 text-sm">
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Batch</span>
-            <span className="text-foreground font-medium">{batch.id}</span>
+            <span className="text-muted-foreground">Job</span>
+            <span className="font-medium text-foreground">#{job.batchId}</span>
           </div>
+
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Type</span>
+            <span className="font-medium capitalize text-foreground">
+              {job.jobType}
+            </span>
+          </div>
+
+          {job.liquidName && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Liquid</span>
+              <span className="font-medium text-foreground">
+                {job.liquidName}
+              </span>
+            </div>
+          )}
+
           <div className="flex justify-between">
             <span className="text-muted-foreground">Total delivered</span>
-            <span className="text-foreground font-medium">{batch.totalLiters.toLocaleString()}L</span>
+            <span className="font-medium text-foreground">
+              {(job.totalVolumeLiters ?? 0).toLocaleString()}L
+            </span>
           </div>
+
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Deliveries</span>
-            <span className="text-foreground font-medium">{deliveries.length} completed</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Area</span>
-            <span className="text-foreground font-medium">{batch.area}</span>
+            <span className="text-muted-foreground">Stops</span>
+            <span className="font-medium text-foreground">
+              {deliveries.length} completed
+            </span>
           </div>
         </div>
       </div>
 
-      <Button variant="hero" className="w-full h-14 rounded-xl text-base" onClick={onBackToDashboard}>
+      <Button
+        variant="default"
+        className="h-14 w-full rounded-xl text-base"
+        onClick={onBackToDashboard}
+      >
         Back to Dashboard
       </Button>
     </div>
   );
 };
+

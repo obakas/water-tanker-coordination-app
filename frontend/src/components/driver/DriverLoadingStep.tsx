@@ -1,46 +1,92 @@
-import { Loader2, CheckCircle2 } from "lucide-react";
+import { Loader2, CheckCircle2, Droplets, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Batch } from "@/types/driver";
+import type { DriverJob } from "@/types/driver";
 
 interface DriverLoadingStepProps {
-  batch: Batch;
-  onStartDeliveries: () => void;
+  job: DriverJob;
+  isLoading: boolean;
+  onMarkLoaded: () => void | Promise<void>;
 }
 
-export const DriverLoadingStep = ({ batch, onStartDeliveries }: DriverLoadingStepProps) => {
+export const DriverLoadingStep = ({
+  job,
+  isLoading,
+  onMarkLoaded,
+}: DriverLoadingStepProps) => {
   return (
     <div className="space-y-6">
-      <div className="text-center py-4">
-        <div className="w-16 h-16 rounded-full bg-warning/10 flex items-center justify-center mx-auto mb-3">
-          <Loader2 className="h-8 w-8 text-warning animate-spin" />
+      <div className="py-4 text-center">
+        <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-warning/10">
+          <Loader2 className="h-8 w-8 animate-spin text-warning" />
         </div>
+
         <h2 className="text-xl font-bold text-foreground">Loading Water</h2>
-        <p className="text-sm text-muted-foreground">Update your status when ready</p>
+
+        <p className="text-sm text-muted-foreground">
+          Confirm when the tanker is loaded and ready to move.
+        </p>
       </div>
 
-      <div className="bg-card rounded-xl border border-border p-5 space-y-3">
+      <div className="space-y-3 rounded-xl border border-border bg-card p-5">
         <div className="flex justify-between text-sm">
-          <span className="text-muted-foreground">Batch</span>
-          <span className="font-medium text-foreground">{batch.id}</span>
+          <span className="text-muted-foreground">Job</span>
+          <span className="font-medium text-foreground">#{job.batchId}</span>
         </div>
+
+        <div className="flex justify-between text-sm">
+          <span className="text-muted-foreground">Type</span>
+          <span className="font-medium capitalize text-foreground">
+            {job.jobType}
+          </span>
+        </div>
+
+        {job.liquidName && (
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">Liquid</span>
+            <span className="font-medium text-foreground">
+              {job.liquidName}
+            </span>
+          </div>
+        )}
+
         <div className="flex justify-between text-sm">
           <span className="text-muted-foreground">Total volume</span>
-          <span className="font-medium text-foreground">{batch.totalLiters.toLocaleString()}L</span>
+          <span className="font-medium text-foreground">
+            {(job.totalVolumeLiters ?? 0).toLocaleString()}L
+          </span>
         </div>
+
         <div className="flex justify-between text-sm">
-          <span className="text-muted-foreground">Deliveries</span>
-          <span className="font-medium text-foreground">{batch.members} stops</span>
-        </div>
-        <div className="flex justify-between text-sm">
-          <span className="text-muted-foreground">Area</span>
-          <span className="font-medium text-foreground">{batch.area}</span>
+          <span className="text-muted-foreground">Stops</span>
+          <span className="font-medium text-foreground">
+            {job.stops.length} {job.stops.length === 1 ? "stop" : "stops"}
+          </span>
         </div>
       </div>
 
-      <Button variant="warning" className="w-full h-14 rounded-xl text-base" onClick={onStartDeliveries}>
-        <CheckCircle2 className="h-5 w-5 mr-2" />
-        Water Loaded — Start Deliveries
+      <div className="space-y-2 rounded-xl border border-border bg-card p-4">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Droplets className="h-4 w-4" />
+          <span>Tanker should be fully loaded before departure.</span>
+        </div>
+
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Package className="h-4 w-4" />
+          <span>Make sure delivery details are ready before leaving.</span>
+        </div>
+      </div>
+
+      <Button
+        variant="warning"
+        className="h-14 w-full rounded-xl text-base"
+        onClick={onMarkLoaded}
+        disabled={isLoading}
+      >
+        <CheckCircle2 className="mr-2 h-5 w-5" />
+        {isLoading ? "Updating..." : "Water Loaded — Start Delivery"}
       </Button>
     </div>
   );
 };
+
+

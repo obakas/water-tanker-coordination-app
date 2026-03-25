@@ -167,15 +167,6 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     try {
       setIsSubmittingRequest(true);
 
-      //   const payload = {
-      //     user_id: currentUser.id,
-      //     liquid_id: 1,
-      //     volume_liters: selectedSize,
-      //     latitude: 6.5244,
-      //     longitude: 3.3792,
-      //     delivery_type: requestMode,
-      //     scheduled_time: requestMode === "priority" ? selectedTimeSlot : null,
-      //   };
       const payload = {
         user_id: currentUser.id,
         liquid_id: 1,

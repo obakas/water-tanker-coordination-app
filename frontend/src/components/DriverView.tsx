@@ -1,19 +1,26 @@
+import { useState } from "react";
 import { DriverHeader } from "@/components/driver/DriverHeader";
 import { DriverAvailableStep } from "@/components/driver/DriverAvailableStep";
 import { DriverLoadingStep } from "@/components/driver/DriverLoadingStep";
 import { DriverDeliveringStep } from "@/components/driver/DriverDeliveringStep";
 import { DriverCompletedStep } from "@/components/driver/DriverCompletedStep";
+import DriverAuthModal from "@/components/driver/DriverAuthModal";
+import DriverHelpModal from "@/components/driver/DriverHelpModal";
 import { useDriverFlow } from "@/hooks/useDriverFlow";
-import { MOCK_BATCH } from "@/types/driver";
+import { useDriverAuth } from "@/hooks/useDriverAuth";
 
 interface DriverViewProps {
   onBack: () => void;
 }
 
 const DriverView = ({ onBack }: DriverViewProps) => {
+  const [showHelp, setShowHelp] = useState(false);
+
+  const { driver, isAuthenticated, loginDriver, logoutDriver } = useDriverAuth();
+
   const {
     step,
-    isOnline,
+    activeJob,
     deliveries,
     otpInput,
     activeDeliveryIdx,
@@ -21,71 +28,104 @@ const DriverView = ({ onBack }: DriverViewProps) => {
     allDelivered,
     currentDelivery,
     setOtpInput,
-    toggleOnlineStatus,
-    acceptBatch,
-    startDeliveries,
-    confirmDelivery,
-    completeTrip,
+    isLoading,
+    isActionLoading,
+    refreshJob,
+    acceptJob,
+    markLoaded,
+    markArrived,
+    completeDelivery,
     resetToDashboard,
-    setStep,
-  } = useDriverFlow();
+  } = useDriverFlow(driver);
 
   const renderStep = () => {
+    if (isLoading) {
+      return (
+        <div className="rounded-xl border p-4 text-sm">
+          Loading current job...
+        </div>
+      );
+    }
+
     switch (step) {
+      case "offline":
       case "available":
         return (
           <DriverAvailableStep
-            isOnline={isOnline}
-            batch={MOCK_BATCH}
-            onAcceptBatch={acceptBatch} onAcceptPriority={function (): void {
-              throw new Error("Function not implemented.");
-            } }          />
-        );
-      case "loading":
-        return (
-          <DriverLoadingStep
-            batch={MOCK_BATCH}
-            onStartDeliveries={startDeliveries}
+            job={activeJob}
+            isLoading={isActionLoading}
+            onRefresh={refreshJob}
+            onAcceptJob={acceptJob}
           />
         );
+
+      case "assigned":
+      case "loading":
+        return activeJob ? (
+          <DriverLoadingStep
+            job={activeJob}
+            isLoading={isActionLoading}
+            onMarkLoaded={markLoaded}
+          />
+        ) : null;
+
       case "delivering":
-        return (
+      case "arrived":
+        return activeJob ? (
           <DriverDeliveringStep
+            job={activeJob}
             deliveries={deliveries}
             activeDeliveryIdx={activeDeliveryIdx}
             currentDelivery={currentDelivery}
             deliveredCount={deliveredCount}
             allDelivered={allDelivered}
             otpInput={otpInput}
+            isLoading={isActionLoading}
             onOtpChange={setOtpInput}
-            onConfirmDelivery={confirmDelivery}
-            onCompleteTrip={completeTrip}
+            onMarkArrived={markArrived}
+            onCompleteDelivery={completeDelivery}
           />
-        );
+        ) : null;
+
       case "completed":
-        return (
+        return activeJob ? (
           <DriverCompletedStep
-            batch={MOCK_BATCH}
+            job={activeJob}
             deliveries={deliveries}
             onBackToDashboard={resetToDashboard}
           />
-        );
+        ) : null;
+
       default:
         return null;
     }
   };
 
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-background p-5">
+        <DriverAuthModal onLogin={loginDriver} />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <DriverHeader
         step={step}
-        isOnline={isOnline}
-        onBack={() => setStep("available")}
-        onToggleOnline={toggleOnlineStatus}
+        driverName={driver?.name}
+        onBack={onBack}
+        onLogout={logoutDriver}
+        onOpenHelp={() => setShowHelp(true)}
       />
+
       <div className="max-w-md mx-auto p-5">{renderStep()}</div>
+
+      {showHelp && <DriverHelpModal onClose={() => setShowHelp(false)} />}
     </div>
   );
 };
 
 export default DriverView;
+
+

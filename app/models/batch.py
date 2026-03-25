@@ -1,9 +1,8 @@
-from sqlalchemy import Column, String, Integer, Float, ForeignKey
+from sqlalchemy import Column, String, Integer, Float, ForeignKey, DateTime
+
 from app.core.database import Base
-import uuid
 
 class Batch(Base):
-# class LiquidRequest(Base):
     __tablename__ = "batches"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -18,5 +17,9 @@ class Batch(Base):
     longitude = Column(Float)
 
     status = Column(String, default="forming")
-
     base_price = Column(Float, default=40000)
+
+    tanker_id = Column(Integer, ForeignKey("tankers.id"), nullable=True)
+    loading_deadline = Column(DateTime, nullable=True)
+    delivering_started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)

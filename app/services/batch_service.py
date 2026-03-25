@@ -1,47 +1,59 @@
-from sqlalchemy.orm import Session
-from app.models.batch import Batch
-from app.models.request import LiquidRequest
-from app.models.batch_member import BatchMember
-# from app.services.tanker_service import assign_tanker_multi_batch
+from __future__ import annotations
+
 from datetime import datetime, timedelta
+from typing import Any
+
+from fastapi import HTTPException
+from sqlalchemy.orm import Session
+
+from app.models.batch import Batch
+from app.models.batch_member import BatchMember
+from app.models.request import LiquidRequest
 from app.models.tanker import Tanker
-from app.utils.location import haversine
+from app.services.routing_service import calculate_distance_km
 
-RADIUS_KM = 1
+RADIUS_KM = 1.0
+PAYMENT_WINDOW_MINUTES = 10
 
 
-def create_new_batch_with_request(db, request):
+def create_new_batch_with_request(db: Session, request: LiquidRequest) -> dict[str, Any]:
+    """
+    Create a new batch and reserve the first member slot.
+    """
     batch = Batch(
         liquid_id=request.liquid_id,
-        current_volume=0,  # IMPORTANT
+        current_volume=0,
         latitude=request.latitude,
         longitude=request.longitude,
-        status="forming"
+        status="forming",
     )
 
     db.add(batch)
+    db.flush()
+
+    member = reserve_member_slot(db, batch, request)
+
     db.commit()
     db.refresh(batch)
+    db.refresh(member)
 
+    return {"batch": batch, "member": member}
+
+
+def attach_request_to_batch(db: Session, batch: Batch, request: LiquidRequest) -> dict[str, Any]:
+    """
+    Attach a request to an existing batch.
+    """
     member = reserve_member_slot(db, batch, request)
-
-    return {
-        "batch": batch,
-        "member": member
-    }
-
-def attach_request_to_batch(db, batch, request):
-
-    member = reserve_member_slot(db, batch, request)
-
-    return {
-        "batch": batch,
-        "member": member
-    }
+    db.commit()
+    db.refresh(member)
+    return {"batch": batch, "member": member}
 
 
-def reserve_member_slot(db, batch, request):
-
+def reserve_member_slot(db: Session, batch: Batch, request: LiquidRequest) -> BatchMember:
+    """
+    Create batch member reservation pending payment.
+    """
     member = BatchMember(
         batch_id=batch.id,
         request_id=request.id,
@@ -49,98 +61,325 @@ def reserve_member_slot(db, batch, request):
         volume_liters=request.volume_liters,
         status="pending",
         payment_status="unpaid",
-        payment_deadline=datetime.utcnow() + timedelta(minutes=10),
+        payment_deadline=datetime.utcnow() + timedelta(minutes=PAYMENT_WINDOW_MINUTES),
         latitude=request.latitude,
-        longitude=request.longitude
+        longitude=request.longitude,
     )
-
     db.add(member)
-    db.commit()
-    db.refresh(member)
-
+    db.flush()
     return member
 
 
-
-def cleanup_expired_members(db: Session):
-    expired_members = db.query(BatchMember).filter(
-        BatchMember.status == "pending",
-        BatchMember.payment_deadline < datetime.utcnow()
-    ).all()
-
-    for member in expired_members:
-        member.status = "cancelled"
-        member.payment_status = "failed"
-
-        # Optional: you can notify user via email / push here
-        print(f"Member {member.id} cancelled due to payment expiry.")
-
-        # Reduce batch volume only if it was pre-added (ours isn’t yet, so skip)
-        # batch = db.query(Batch).filter(Batch.id == member.batch_id).first()
-        # batch.current_volume -= member.volume_liters
-
-    db.commit()
-
-
-
-
-
-
-def find_or_create_batch(db: Session, request: LiquidRequest):
-    print("Incoming request:", request.id, request.volume_liters)
+def find_or_create_batch(db: Session, request: LiquidRequest) -> dict[str, Any]:
+    """
+    Find a nearby forming batch within radius and capacity; otherwise create one.
+    """
     batches = db.query(Batch).filter(
         Batch.liquid_id == request.liquid_id,
-        Batch.status == "forming"
+        Batch.status == "forming",
     ).all()
 
-    print("Found batches:", len(batches))
     for batch in batches:
-        distance = haversine(
-            batch.longitude, batch.latitude,
-            request.longitude, request.latitude
+        distance_km = calculate_distance_km(
+            batch.longitude,
+            batch.latitude,
+            request.longitude,
+            request.latitude,
         )
-        print(f"Batch {batch.id} distance: {distance:.1f} km")
 
-        if distance <= RADIUS_KM:
-            # Check if volume fits
+        if distance_km <= RADIUS_KM:
             if batch.current_volume + request.volume_liters <= batch.target_volume:
-                print("Adding to existing nearby batch:", batch.id)
                 return attach_request_to_batch(db, batch, request)
 
-    print("Creating new batch")
     return create_new_batch_with_request(db, request)
 
 
-def update_batch_center(db, batch):
+def get_batch_by_id(db: Session, batch_id: int) -> Batch:
+    batch = db.query(Batch).filter(Batch.id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    return batch
+
+
+def get_batch_members(db: Session, batch_id: int) -> list[BatchMember]:
+    return db.query(BatchMember).filter(BatchMember.batch_id == batch_id).all()
+
+
+def update_batch_center(db: Session, batch: Batch) -> Batch:
+    """
+    Recompute batch center using confirmed members only.
+    """
     members = db.query(BatchMember).filter(
         BatchMember.batch_id == batch.id,
-        BatchMember.status == "confirmed"
+        BatchMember.status == "confirmed",
     ).all()
+
     if not members:
-        return
+        return batch
+
     avg_lat = sum(m.latitude for m in members) / len(members)
     avg_lon = sum(m.longitude for m in members) / len(members)
+
     batch.latitude = avg_lat
     batch.longitude = avg_lon
+
     db.commit()
+    db.refresh(batch)
+    return batch
 
 
-def cleanup_unaccepted_batches(db: Session):
-    expired_batches = db.query(Batch).filter(
-        Batch.status == "assigned",
-        Batch.loading_deadline < datetime.utcnow()
+def recalculate_batch_volume(db: Session, batch_id: int) -> Batch:
+    """
+    Set batch.current_volume from confirmed/paid members.
+    """
+    batch = get_batch_by_id(db, batch_id)
+
+    members = db.query(BatchMember).filter(
+        BatchMember.batch_id == batch.id,
+        BatchMember.status.in_(["confirmed", "delivered"]),
     ).all()
 
-    for batch in expired_batches:
-        print(f"Batch {batch.id} expired — tanker did not respond")
+    batch.current_volume = sum(member.volume_liters for member in members)
 
+    db.commit()
+    db.refresh(batch)
+    return batch
+
+
+def mark_batch_ready(db: Session, batch_id: int) -> Batch:
+    batch = get_batch_by_id(db, batch_id)
+    batch.status = "ready"
+    db.commit()
+    db.refresh(batch)
+    return batch
+
+
+def mark_batch_assigned(db: Session, batch_id: int, tanker_id: int) -> Batch:
+    batch = get_batch_by_id(db, batch_id)
+    batch.status = "assigned"
+    batch.tanker_id = tanker_id
+    db.commit()
+    db.refresh(batch)
+    return batch
+
+
+def mark_batch_loading(db: Session, batch_id: int) -> Batch:
+    batch = get_batch_by_id(db, batch_id)
+    batch.status = "loading"
+    db.commit()
+    db.refresh(batch)
+    return batch
+
+
+def mark_batch_delivering(db: Session, batch_id: int) -> Batch:
+    batch = get_batch_by_id(db, batch_id)
+    batch.status = "delivering"
+    db.commit()
+    db.refresh(batch)
+    return batch
+
+
+def mark_batch_arrived(db: Session, batch_id: int) -> Batch:
+    batch = get_batch_by_id(db, batch_id)
+    batch.status = "arrived"
+    db.commit()
+    db.refresh(batch)
+    return batch
+
+
+def mark_batch_completed(db: Session, batch_id: int) -> Batch:
+    batch = get_batch_by_id(db, batch_id)
+    batch.status = "completed"
+    db.commit()
+    db.refresh(batch)
+    return batch
+
+
+def cleanup_expired_members(db: Session) -> int:
+    expired_members = db.query(BatchMember).filter(
+        BatchMember.status == "pending",
+        BatchMember.payment_deadline < datetime.utcnow(),
+    ).all()
+
+    count = 0
+    for member in expired_members:
+        member.status = "cancelled"
+        member.payment_status = "failed"
+        count += 1
+
+    db.commit()
+    return count
+
+
+def cleanup_unaccepted_batches(db: Session) -> int:
+    """
+    If tanker did not respond before loading_deadline, release tanker and reset batch.
+    """
+    expired_batches = db.query(Batch).filter(
+        Batch.status == "assigned",
+        Batch.loading_deadline < datetime.utcnow(),
+    ).all()
+
+    count = 0
+    for batch in expired_batches:
         tanker = db.query(Tanker).filter(Tanker.id == batch.tanker_id).first()
 
         if tanker:
             tanker.status = "available"
+            tanker.is_available = True
 
         batch.status = "ready"
         batch.tanker_id = None
         batch.loading_deadline = None
+        count += 1
 
     db.commit()
+    return count
+
+
+# from sqlalchemy.orm import Session
+# from app.models.batch import Batch
+# from app.models.request import LiquidRequest
+# from app.models.batch_member import BatchMember
+# # from app.services.tanker_service import assign_tanker_multi_batch
+# from datetime import datetime, timedelta
+# from app.models.tanker import Tanker
+# from app.utils.location import haversine
+
+# RADIUS_KM = 1
+
+
+# def create_new_batch_with_request(db, request):
+#     batch = Batch(
+#         liquid_id=request.liquid_id,
+#         current_volume=0,  # IMPORTANT
+#         latitude=request.latitude,
+#         longitude=request.longitude,
+#         status="forming"
+#     )
+
+#     db.add(batch)
+#     db.commit()
+#     db.refresh(batch)
+
+#     member = reserve_member_slot(db, batch, request)
+
+#     return {
+#         "batch": batch,
+#         "member": member
+#     }
+
+# def attach_request_to_batch(db, batch, request):
+
+#     member = reserve_member_slot(db, batch, request)
+
+#     return {
+#         "batch": batch,
+#         "member": member
+#     }
+
+
+# def reserve_member_slot(db, batch, request):
+
+#     member = BatchMember(
+#         batch_id=batch.id,
+#         request_id=request.id,
+#         user_id=request.user_id,
+#         volume_liters=request.volume_liters,
+#         status="pending",
+#         payment_status="unpaid",
+#         payment_deadline=datetime.utcnow() + timedelta(minutes=10),
+#         latitude=request.latitude,
+#         longitude=request.longitude
+#     )
+
+#     db.add(member)
+#     db.commit()
+#     db.refresh(member)
+
+#     return member
+
+
+
+# def cleanup_expired_members(db: Session):
+#     expired_members = db.query(BatchMember).filter(
+#         BatchMember.status == "pending",
+#         BatchMember.payment_deadline < datetime.utcnow()
+#     ).all()
+
+#     for member in expired_members:
+#         member.status = "cancelled"
+#         member.payment_status = "failed"
+
+#         # Optional: you can notify user via email / push here
+#         print(f"Member {member.id} cancelled due to payment expiry.")
+
+#         # Reduce batch volume only if it was pre-added (ours isn’t yet, so skip)
+#         # batch = db.query(Batch).filter(Batch.id == member.batch_id).first()
+#         # batch.current_volume -= member.volume_liters
+
+#     db.commit()
+
+
+
+
+
+
+# def find_or_create_batch(db: Session, request: LiquidRequest):
+#     print("Incoming request:", request.id, request.volume_liters)
+#     batches = db.query(Batch).filter(
+#         Batch.liquid_id == request.liquid_id,
+#         Batch.status == "forming"
+#     ).all()
+
+#     print("Found batches:", len(batches))
+#     for batch in batches:
+#         distance = haversine(
+#             batch.longitude, batch.latitude,
+#             request.longitude, request.latitude
+#         )
+#         print(f"Batch {batch.id} distance: {distance:.1f} km")
+
+#         if distance <= RADIUS_KM:
+#             # Check if volume fits
+#             if batch.current_volume + request.volume_liters <= batch.target_volume:
+#                 print("Adding to existing nearby batch:", batch.id)
+#                 return attach_request_to_batch(db, batch, request)
+
+#     print("Creating new batch")
+#     return create_new_batch_with_request(db, request)
+
+
+# def update_batch_center(db, batch):
+#     members = db.query(BatchMember).filter(
+#         BatchMember.batch_id == batch.id,
+#         BatchMember.status == "confirmed"
+#     ).all()
+#     if not members:
+#         return
+#     avg_lat = sum(m.latitude for m in members) / len(members)
+#     avg_lon = sum(m.longitude for m in members) / len(members)
+#     batch.latitude = avg_lat
+#     batch.longitude = avg_lon
+#     db.commit()
+
+
+# def cleanup_unaccepted_batches(db: Session):
+#     expired_batches = db.query(Batch).filter(
+#         Batch.status == "assigned",
+#         Batch.loading_deadline < datetime.utcnow()
+#     ).all()
+
+#     for batch in expired_batches:
+#         print(f"Batch {batch.id} expired — tanker did not respond")
+
+#         tanker = db.query(Tanker).filter(Tanker.id == batch.tanker_id).first()
+
+#         if tanker:
+#             tanker.status = "available"
+
+#         batch.status = "ready"
+#         batch.tanker_id = None
+#         batch.loading_deadline = None
+
+#     db.commit()

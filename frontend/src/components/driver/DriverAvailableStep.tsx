@@ -1,97 +1,115 @@
-import { Truck, MapPin, Droplets, Package } from "lucide-react";
+import { Truck, Droplets, Package, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { Batch } from "@/types/driver";
+import type { DriverJob } from "@/types/driver";
 
 interface DriverAvailableStepProps {
-  isOnline: boolean;
-  batch: Batch;
-  onAcceptBatch: () => void;
-  onAcceptPriority: () => void;
+  job: DriverJob | null;
+  isLoading: boolean;
+  onRefresh: () => void | Promise<void>;
+  onAcceptJob: () => void | Promise<void>;
 }
 
 export const DriverAvailableStep = ({
-  isOnline,
-  batch,
-  onAcceptBatch,
-  onAcceptPriority,
+  job,
+  isLoading,
+  onRefresh,
+  onAcceptJob,
 }: DriverAvailableStepProps) => {
-  if (!isOnline) {
+  if (!job) {
     return (
-      <div className="text-center py-16">
-        <div className="w-20 h-20 rounded-full bg-secondary flex items-center justify-center mx-auto mb-4">
-          <Truck className="h-10 w-10 text-muted-foreground" />
+      <div className="space-y-6">
+        <div className="py-16 text-center">
+          <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-secondary">
+            <Truck className="h-10 w-10 text-muted-foreground" />
+          </div>
+
+          <h2 className="text-xl font-bold text-foreground">
+            No Current Assignment
+          </h2>
+
+          <p className="mt-2 text-muted-foreground">
+            You don’t have any active delivery job right now.
+          </p>
         </div>
-        <h2 className="text-xl font-bold text-foreground">You're Offline</h2>
-        <p className="text-muted-foreground mt-2">Go online to see available deliveries</p>
+
+        <Button
+          variant="outline"
+          className="h-12 w-full rounded-xl"
+          onClick={onRefresh}
+          disabled={isLoading}
+        >
+          <RefreshCw className="mr-2 h-4 w-4" />
+          {isLoading ? "Refreshing..." : "Refresh Job"}
+        </Button>
       </div>
     );
   }
 
-  const mockPriority = {
-    id: "PRIORITY-001",
-    area: "Urgent Delivery Zone",
-    totalLiters: 10000,
-    members: 1,
-    earnings: "₦50,000",
-  };
-
-  const renderDeliveryCard = (delivery: typeof batch | typeof mockPriority, type: "batch" | "priority") => (
-    <div className="bg-card rounded-xl border border-border p-5 space-y-4" key={delivery.id}>
-      <div className="flex items-center justify-between">
-        <span
-          className={`text-xs font-medium px-2 py-1 rounded-full ${
-            type === "batch" ? "text-primary bg-primary/10" : "text-destructive bg-destructive/10"
-          }`}
-        >
-          {type === "batch" ? "New Batch" : "Priority Delivery"}
-        </span>
-        <span className="text-xs text-muted-foreground">{delivery.id}</span>
-      </div>
-
-      <div className="space-y-3">
-        <div className="flex items-center gap-2 text-sm">
-          <MapPin className="h-4 w-4 text-muted-foreground" />
-          <span className="text-foreground">{delivery.area}</span>
-        </div>
-        <div className="flex items-center gap-2 text-sm">
-          <Droplets className="h-4 w-4 text-muted-foreground" />
-          <span className="text-foreground">{delivery.totalLiters.toLocaleString()}L total</span>
-        </div>
-        <div className="flex items-center gap-2 text-sm">
-          <Package className="h-4 w-4 text-muted-foreground" />
-          <span className="text-foreground">{delivery.members} deliveries</span>
-        </div>
-      </div>
-
-      <div className="bg-success/5 rounded-lg p-3 text-center">
-        <p className="text-xs text-muted-foreground">You'll earn</p>
-        <p className="text-2xl font-extrabold text-success">{delivery.earnings}</p>
-      </div>
-
-      <Button
-        variant={type === "batch" ? "success" : "destructive"}
-        className="w-full h-12 rounded-xl"
-        onClick={type === "batch" ? onAcceptBatch : onAcceptPriority}
-      >
-        {type === "batch" ? "Accept Batch" : "Accept Priority"}
-      </Button>
-    </div>
-  );
-
   return (
     <div className="space-y-6">
-      <div className="text-center py-4">
-        <div className="w-16 h-16 rounded-full bg-success/10 flex items-center justify-center mx-auto mb-3">
-          <Truck className="h-8 w-8 text-success" />
+      <div className="py-4 text-center">
+        <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+          <Truck className="h-8 w-8 text-primary" />
         </div>
-        <h2 className="text-xl font-bold text-foreground">You're Online</h2>
-        <p className="text-sm text-muted-foreground">Looking for available deliveries...</p>
+
+        <h2 className="text-xl font-bold text-foreground">
+          New {job.jobType === "priority" ? "Priority" : "Batch"} Assignment
+        </h2>
+
+        <p className="text-sm text-muted-foreground">
+          Review the job details below and accept to continue.
+        </p>
       </div>
 
-      <div className="space-y-4">
-        {renderDeliveryCard(batch, "batch")}
-        {renderDeliveryCard(mockPriority, "priority")}
+      <div className="space-y-4 rounded-xl border border-border bg-card p-5">
+        <div className="flex items-center justify-between">
+          <span
+            className={`rounded-full px-2 py-1 text-xs font-medium ${
+              job.jobType === "batch"
+                ? "bg-primary/10 text-primary"
+                : "bg-destructive/10 text-destructive"
+            }`}
+          >
+            {job.jobType === "batch" ? "Batch Delivery" : "Priority Delivery"}
+          </span>
+
+          <span className="text-xs text-muted-foreground">
+            Job #{job.batchId}
+          </span>
+        </div>
+
+        <div className="space-y-3">
+          {job.liquidName && (
+            <div className="flex items-center gap-2 text-sm">
+              <Droplets className="h-4 w-4 text-muted-foreground" />
+              <span className="text-foreground">{job.liquidName}</span>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 text-sm">
+            <Droplets className="h-4 w-4 text-muted-foreground" />
+            <span className="text-foreground">
+              {(job.totalVolumeLiters ?? 0).toLocaleString()}L total
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 text-sm">
+            <Package className="h-4 w-4 text-muted-foreground" />
+            <span className="text-foreground">
+              {job.stops.length} {job.stops.length === 1 ? "stop" : "stops"}
+            </span>
+          </div>
+        </div>
+
+        <Button
+          className="h-12 w-full rounded-xl"
+          onClick={onAcceptJob}
+          disabled={isLoading}
+        >
+          {isLoading ? "Accepting..." : "Accept Job"}
+        </Button>
       </div>
     </div>
   );
 };
+
