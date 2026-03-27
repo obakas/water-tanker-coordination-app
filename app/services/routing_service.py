@@ -5,6 +5,7 @@ from typing import Iterable
 
 from app.models.batch_member import BatchMember
 from app.models.tanker import Tanker
+from app.services.driver_scoring_service import haversine_km
 
 
 def calculate_distance_km(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
@@ -136,3 +137,45 @@ def sort_members_by_distance_from_tanker(
             member.latitude,
         ),
     )
+
+def plan_batch_delivery_order(batch, members: list) -> list[dict]:
+    """
+    Greedy nearest-neighbor route starting from batch center.
+    """
+    remaining = [
+        member for member in members
+        if getattr(member, "latitude", None) is not None
+        and getattr(member, "longitude", None) is not None
+    ]
+
+    if not remaining:
+        return []
+
+    current_lat = batch.latitude
+    current_lon = batch.longitude
+    ordered = []
+
+    while remaining:
+        next_member = min(
+            remaining,
+            key=lambda member: haversine_km(
+                current_lat,
+                current_lon,
+                member.latitude,
+                member.longitude,
+            )
+        )
+
+        ordered.append({
+            "member_id": next_member.id,
+            "request_id": getattr(next_member, "request_id", None),
+            "latitude": next_member.latitude,
+            "longitude": next_member.longitude,
+            "volume_liters": getattr(next_member, "volume_liters", None),
+        })
+
+        current_lat = next_member.latitude
+        current_lon = next_member.longitude
+        remaining.remove(next_member)
+
+    return ordered

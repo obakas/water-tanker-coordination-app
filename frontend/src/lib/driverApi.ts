@@ -5,29 +5,66 @@ import type { DriverJob } from "@/types/driver";
 import { mapCurrentJobResponseToDriverJob } from "@/lib/driverMappers";
 
 
+// const api = {
+//   get: async (url: string) => {
+//     const response = await fetch(`${API_BASE_URL}${url}`);
+//     return response.json();
+//   },
+//   post: async (url: string, data?: any) => {
+//     const response = await fetch(`${API_BASE_URL}${url}`, {
+//       method: "POST",
+//       headers: {
+//         "Content-Type": "application/json",
+//       },
+//       body: JSON.stringify(data),
+//     });
+//     return response.json();
+//   },
+// };
+
 const api = {
   get: async (url: string) => {
     const response = await fetch(`${API_BASE_URL}${url}`);
-    return response.json();
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data?.detail || "Request failed");
+    }
+
+    return data;
   },
+
   post: async (url: string, data?: any) => {
     const response = await fetch(`${API_BASE_URL}${url}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(data),
+      body: data ? JSON.stringify(data) : undefined,
     });
-    return response.json();
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result?.detail || "Request failed");
+    }
+
+    return result;
   },
 };
 
 
+// export async function getCurrentDriverJob(
+//   driverId: number
+// ): Promise<DriverJob | null> {
+//   const response = await api.get(`/tankers/${driverId}/current-job`);
+//   return mapCurrentJobResponseToDriverJob(response.data);
+// }
 export async function getCurrentDriverJob(
   driverId: number
 ): Promise<DriverJob | null> {
   const response = await api.get(`/tankers/${driverId}/current-job`);
-  return mapCurrentJobResponseToDriverJob(response.data);
+  return mapCurrentJobResponseToDriverJob(response);
 }
 
 export async function acceptDriverBatch(

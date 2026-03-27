@@ -11,12 +11,22 @@
 from fastapi import FastAPI
 from app.core.database import Base, engine
 from fastapi.middleware.cors import CORSMiddleware
+from app.core.scheduler import start_scheduler, stop_scheduler
 
 # from app.models import user, batch, request, payment, tanker
 
-from app.api.routes import requests, batches, tankers, payments, auth, users
+from app.api.routes import requests, batches, tankers, payments, auth, users, batches
 
 app = FastAPI()
+
+@app.on_event("startup")
+def on_startup():
+    start_scheduler()
+
+
+@app.on_event("shutdown")
+def on_shutdown():
+    stop_scheduler()
 
 Base.metadata.create_all(bind=engine)
 
@@ -44,5 +54,6 @@ app.include_router(tankers.router)
 app.include_router(payments.router)
 app.include_router(auth.router)
 app.include_router(users.router)
+app.include_router(batches.router)
 
 

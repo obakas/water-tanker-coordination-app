@@ -38,9 +38,22 @@ export const useDriverFlow = (driver: DriverUser | null) => {
     }
   }, [tankerId]);
 
+  // useEffect(() => {
+  //   void refreshJob();
+  // }, [refreshJob]);
   useEffect(() => {
+    if (!tankerId) return;
+
+    // first fetch immediately
     void refreshJob();
-  }, [refreshJob]);
+
+    // then poll every 5 seconds
+    const interval = setInterval(() => {
+      refreshJob();
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [tankerId, refreshJob]);
 
   const step: DriverStep = useMemo(() => {
     if (!driver) return "offline";

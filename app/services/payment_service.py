@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.models.batch import Batch
 from app.models.batch_member import BatchMember
 from app.models.payment import Payment
+from app.services.batch_orchestration_service import handle_batch_payment_confirmed
 from app.services.batch_service import mark_batch_ready, recalculate_batch_volume
 from app.services.tanker_service import assign_tanker_to_batch
 
@@ -122,6 +123,23 @@ def refund_payment(db: Session, payment_id: int) -> Payment:
     db.commit()
     db.refresh(payment)
     return payment
+
+
+def confirm_batch_member_payment(db: Session, member_id: int):
+    # your payment success logic...
+    # member.payment_status = "paid"
+    # commit...
+
+    member = ...
+    batch_id = member.batch_id
+
+    orchestration_result = handle_batch_payment_confirmed(db, batch_id)
+
+    return {
+        "payment_confirmed": True,
+        "batch_id": batch_id,
+        "batch_state": orchestration_result,
+    }
 
 # from random import random
 

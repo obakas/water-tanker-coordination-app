@@ -74,8 +74,8 @@ export const DriverAvailableStep = ({
           </span>
 
           <span className="text-xs text-muted-foreground">
-            Job #{job.batchId}
-          </span>
+  Job #{job.jobType === "batch" ? job.batchId : job.requestId}
+</span>
         </div>
 
         <div className="space-y-3">

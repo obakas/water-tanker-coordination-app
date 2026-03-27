@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -522,3 +522,29 @@ def reset_tanker(tanker_id: int, db: Session = Depends(get_db)):
         "tanker_id": tanker.id,
         "tanker_status": tanker.status,
     }
+
+@router.post("/{tanker_id}/pause")
+def pause_tanker(tanker_id: int, minutes: int = 10, db: Session = Depends(get_db)):
+    tanker = db.query(Tanker).filter(Tanker.id == tanker_id).first()
+    if not tanker:
+        raise HTTPException(status_code=404, detail="Tanker not found")
+
+    tanker.paused_until = datetime.utcnow() + timedelta(minutes=minutes)
+    db.commit()
+
+    return {
+        "message": f"Tanker paused for {minutes} minutes",
+        "paused_until": tanker.paused_until,
+    }
+
+
+@router.post("/{tanker_id}/resume")
+def resume_tanker(tanker_id: int, db: Session = Depends(get_db)):
+    tanker = db.query(Tanker).filter(Tanker.id == tanker_id).first()
+    if not tanker:
+        raise HTTPException(status_code=404, detail="Tanker not found")
+
+    tanker.paused_until = None
+    db.commit()
+
+    return {"message": "Tanker resumed and available for assignment"}

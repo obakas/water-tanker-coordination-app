@@ -60,7 +60,18 @@ const DriverView = ({ onBack }: DriverViewProps) => {
         );
 
       case "assigned":
+      // case "loading":
+        return activeJob ? (
+          <DriverAvailableStep
+            job={activeJob}
+            isLoading={isActionLoading}
+            onRefresh={refreshJob}
+            onAcceptJob={acceptJob}
+          />
+        ) : null;
+
       case "loading":
+      // case "loading":
         return activeJob ? (
           <DriverLoadingStep
             job={activeJob}

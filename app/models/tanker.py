@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean
+from sqlalchemy import Column, Integer, String, Boolean, DateTime
 from app.core.database import Base
 
 
@@ -16,3 +16,5 @@ class Tanker(Base):
     is_available = Column(Boolean, default=True, nullable=False)
 
     current_request_id = Column(Integer, nullable=True)
+    paused_until = Column(DateTime, nullable=True)
+    is_online = Column(Boolean, default=True, nullable=False)

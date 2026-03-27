@@ -23,3 +23,9 @@ class Batch(Base):
     loading_deadline = Column(DateTime, nullable=True)
     delivering_started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
+
+    search_radius_km = Column(Float, default=1.0)
+    expires_at = Column(DateTime, nullable=True)
+    last_health_check_at = Column(DateTime, nullable=True)
+    assigned_at = Column(DateTime, nullable=True)
+    last_radius_expansion_at = Column(DateTime, nullable=True)
