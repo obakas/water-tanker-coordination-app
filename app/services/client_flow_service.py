@@ -44,6 +44,7 @@ def create_batch_request_flow(db: Session, data: RequestCreate) -> dict[str, Any
     batch = batch_result["batch"]
     member = batch_result["member"]
     payment = initiate_payment(db, member.id)
+    payment_result = confirm_payment(db, payment.id)
 
     return {
         "message": "Batch request created successfully",
@@ -52,7 +53,13 @@ def create_batch_request_flow(db: Session, data: RequestCreate) -> dict[str, Any
         "member_id": member.id,
         "payment_id": payment.id,
         "request_status": request.status,
-        "batch_status": batch.status,
+        "request_status": request.status,
+        "batch_status": payment_result.get("batch_snapshot", {}).get("status", batch.status),
+        "payment_status": payment_result.get("member_payment_status"),
+        "member_status": payment_result.get("member_status"),
+        "delivery_code": payment_result.get("delivery_code"),
+        "batch_snapshot": payment_result.get("batch_snapshot"),
+        # "batch_status": batch.status,
     }
 
 

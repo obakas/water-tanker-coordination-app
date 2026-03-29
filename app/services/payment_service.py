@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from enum import member
 import random
 from datetime import datetime
 from typing import Any
@@ -79,23 +78,38 @@ def calculate_member_cost(batch: Batch, member_volume: int) -> float:
     return member_volume * price_per_liter
 
 
+# def confirm_payment(db: Session, payment_id: int) -> dict[str, Any]:
+#     payment = get_payment_by_id(db, payment_id)
+
+#     if payment.status == "paid":
+#         return {
+#             "message": "Payment already confirmed",
+#             "payment_id": payment.id,
+#             "member_id": payment.member_id,
+#             "batch_id": member.batch_id if member else None,
+#             "member_status": member.status if member else None,
+#             "member_payment_status": member.payment_status if member else None,
+#         }
+
+    # member = db.query(BatchMember).filter(BatchMember.id == payment.member_id).first()
+    # if not member:
+    #     raise HTTPException(status_code=404, detail="Member not found")
 def confirm_payment(db: Session, payment_id: int) -> dict[str, Any]:
     payment = get_payment_by_id(db, payment_id)
+
+    member = db.query(BatchMember).filter(BatchMember.id == payment.member_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
 
     if payment.status == "paid":
         return {
             "message": "Payment already confirmed",
             "payment_id": payment.id,
             "member_id": payment.member_id,
-            "batch_id": member.batch_id if member else None,
-            "member_status": member.status if member else None,
-            "member_payment_status": member.payment_status if member else None,
+            "batch_id": member.batch_id,
+            "member_status": member.status,
+            "member_payment_status": member.payment_status,
         }
-
-    member = db.query(BatchMember).filter(BatchMember.id == payment.member_id).first()
-    if not member:
-        raise HTTPException(status_code=404, detail="Member not found")
-
     if member.payment_deadline and datetime.utcnow() > member.payment_deadline:
         member.status = "cancelled"
         member.payment_status = "failed"

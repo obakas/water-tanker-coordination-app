@@ -29,7 +29,7 @@ def refresh_batch_after_member_change(db: Session, batch_id: int) -> Batch:
     if batch.target_volume > 0:
         fill_ratio = batch.current_volume / batch.target_volume
 
-    if batch.status in {"assigned", "loading", "delivering", "completed", "expired"}:
+    if batch.status in {"assigned", "loading", "delivering" , "arrived", "completed", "expired"}:
         return batch
 
     if batch.current_volume <= 0:
