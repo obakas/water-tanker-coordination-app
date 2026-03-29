@@ -8,7 +8,7 @@ from app.services.batch_scoring_service import (
     should_widen_radius,
     is_batch_ready_for_assignment,
 )
-from app.services.assignment_service import assign_batch
+from app.services.assignment_service import assign_best_tanker_for_batch
 from app.services.batch_service import recalculate_batch_volume
 from app.services.routing_service import plan_batch_delivery_order
 
@@ -90,7 +90,7 @@ def process_single_batch(db: Session, batch: Batch) -> dict:
             result["radius_widened"] = True
 
         if batch.status == "ready_for_assignment" and is_batch_ready_for_assignment(batch):
-            assignment_result = assign_batch(db, batch.id)
+            assignment_result = assign_best_tanker_for_batch(db, batch.id)
             if assignment_result.get("assigned"):
                 result["assigned"] = True
                 db.refresh(batch)

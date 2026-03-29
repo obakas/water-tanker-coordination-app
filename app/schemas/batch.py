@@ -29,6 +29,7 @@ class BatchLiveResponse(BaseModel):
         "assigned",
         "loading",
         "delivering",
+        "arrived",
         "completed",
         "expired",
     ]

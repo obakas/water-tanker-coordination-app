@@ -8,48 +8,34 @@ from sqlalchemy.orm import Session
 
 from app.models.request import LiquidRequest
 from app.models.tanker import Tanker
+from app.services.assignment_service import assign_best_tanker_for_priority
 from app.services.request_service import create_priority_request_record
 
 
-def assign_priority_tanker(db: Session, request: LiquidRequest) -> Tanker:
+def create_and_assign_priority_request(db: Session, data) -> dict[str, Any]:
     """
-    Assign a tanker directly to a priority request.
-    This is the path you want to keep.
+    For ASAP priority request: create request and assign tanker through
+    the canonical assignment service.
     """
-    tanker = (
-        db.query(Tanker)
-        .filter(
-            Tanker.is_available == True,
-            Tanker.status == "available",
-        )
-        .first()
+    request = create_priority_request_record(db, data)
+
+    assignment_result = assign_best_tanker_for_priority(
+        db,
+        request=request,
     )
 
-    if not tanker:
+    if not assignment_result:
         raise HTTPException(
             status_code=404,
             detail="No available tanker found for priority delivery",
         )
 
-    tanker.is_available = False
-    tanker.status = "assigned"
-    tanker.current_request_id = request.id
+    tanker = assignment_result["tanker"]
 
     request.status = "assigned"
-
     db.commit()
-    db.refresh(tanker)
     db.refresh(request)
-
-    return tanker
-
-
-def create_and_assign_priority_request(db: Session, data) -> dict[str, Any]:
-    """
-    For ASAP priority request: create request and assign tanker immediately.
-    """
-    request = create_priority_request_record(db, data)
-    tanker = assign_priority_tanker(db, request)
+    db.refresh(tanker)
 
     return {
         "message": "Priority request created and assigned successfully",
@@ -58,6 +44,8 @@ def create_and_assign_priority_request(db: Session, data) -> dict[str, Any]:
         "request_status": request.status,
         "tanker_status": tanker.status,
         "scheduled_for": request.scheduled_for.isoformat() if request.scheduled_for else None,
+        "score_breakdown": assignment_result.get("score_breakdown"),
+        "ranked_candidates": assignment_result.get("ranked_candidates", []),
     }
 
 
@@ -80,7 +68,8 @@ def create_scheduled_priority_request(db: Session, data) -> dict[str, Any]:
 
 def activate_scheduled_priority_request(db: Session, request_id: int) -> dict[str, Any]:
     """
-    Assign tanker when scheduled time arrives.
+    Assign a tanker when the scheduled time arrives, using the canonical
+    assignment service.
     """
     request = db.query(LiquidRequest).filter(LiquidRequest.id == request_id).first()
     if not request:
@@ -89,12 +78,38 @@ def activate_scheduled_priority_request(db: Session, request_id: int) -> dict[st
     if request.delivery_type != "priority":
         raise HTTPException(status_code=400, detail="Request is not priority")
 
-    tanker = assign_priority_tanker(db, request)
+    if request.status not in {"pending"}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Priority request cannot be activated from status '{request.status}'",
+        )
+
+    assignment_result = assign_best_tanker_for_priority(
+        db,
+        request=request,
+    )
+
+    if not assignment_result:
+        raise HTTPException(
+            status_code=404,
+            detail="No available tanker found for scheduled priority delivery",
+        )
+
+    tanker = assignment_result["tanker"]
+
+    request.status = "assigned"
+    db.commit()
+    db.refresh(request)
+    db.refresh(tanker)
 
     return {
         "message": "Scheduled priority request activated",
         "request_id": request.id,
         "tanker_id": tanker.id,
+        "request_status": request.status,
+        "tanker_status": tanker.status,
+        "score_breakdown": assignment_result.get("score_breakdown"),
+        "ranked_candidates": assignment_result.get("ranked_candidates", []),
     }
 
 
@@ -107,7 +122,7 @@ def get_pending_scheduled_priority_requests(db: Session) -> list[LiquidRequest]:
     ).all()
 
 
-def release_priority_tanker(db: Session, tanker_id: int) -> Tanker:
+def release_priority_tanker(db: Session, tanker_id: int):
     tanker = db.query(Tanker).filter(Tanker.id == tanker_id).first()
     if not tanker:
         raise HTTPException(status_code=404, detail="Tanker not found")
@@ -127,14 +142,15 @@ def complete_priority_request(db: Session, request_id: int, tanker_id: int) -> d
         raise HTTPException(status_code=404, detail="Priority request not found")
 
     request.status = "completed"
-    release_priority_tanker(db, tanker_id)
-
     db.commit()
     db.refresh(request)
+
+    release_priority_tanker(db, tanker_id)
 
     return {
         "message": "Priority delivery completed",
         "request_id": request.id,
         "request_status": request.status,
     }
+
 

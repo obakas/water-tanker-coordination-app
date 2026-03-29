@@ -1,14 +1,11 @@
 from __future__ import annotations
-
 from datetime import datetime
 from typing import Any
 from sqlalchemy.orm import Session
-
 from app.models.batch import Batch
 from app.models.batch_member import BatchMember
 from app.models.tanker import Tanker
 from app.models.job_offer import JobOffer
-from app.models.driver_metric import DriverMetric
 from app.services.driver_scoring_service import (
     compute_driver_score,
     build_zone_key,
@@ -16,7 +13,7 @@ from app.services.driver_scoring_service import (
     haversine_km,
     score_driver_for_batch,
 )
-from app.services.tanker_service import assign_tanker_to_batch
+
 
 
 MAX_BATCH_ASSIGNMENT_RADIUS_KM = 2.0
@@ -135,18 +132,22 @@ def mark_offer_timeout(db: Session, offer: JobOffer):
     metric.timeout_count_today += 1
 
 
-def assign_priority_request(
+def assign_best_tanker_for_priority(
     db: Session,
     *,
     request,
     offer_limit: int = 5,
 ):
+    
+
     ranked = rank_tankers_for_job(
         db,
         job_lat=request.latitude,
         job_lon=request.longitude,
         job_type="priority",
     )
+
+    
 
     ranked = ranked[:offer_limit]
     if not ranked:
@@ -158,7 +159,16 @@ def assign_priority_request(
 
     tanker.status = "assigned"
     tanker.is_available = False
+
+    # priority.status = "assigned"
+    # request.status = "assigned"
+    
     tanker.current_request_id = request.id
+
+    request.status = "assigned"
+    db.commit()
+    db.refresh(tanker)
+    db.refresh(request)
 
     create_job_offer(
         db,
@@ -193,9 +203,23 @@ def mark_job_completed(db: Session, tanker_id: int, job_type: str, earnings: flo
     if job_type == "priority":
         metric.priority_completed_total += 1
 
-def assign_batch(db: Session, batch: Batch, members: list[BatchMember]) -> dict:
-    eligible_tankers = assign_tanker_to_batch(db, batch)
+def assign_best_tanker_for_batch(
+    db: Session,
+    batch: Batch,
+    members: list[BatchMember],
+) -> dict[str, Any]:
+    """
+    Assign the best tanker to a ready batch.
+    """
+    current_status = str(getattr(batch, "status", "") or "").lower()
+    if current_status in {"assigned", "loading", "delivering", "completed"}:
+        return {
+            "assigned": False,
+            "batch_id": batch.id,
+            "reason": f"Batch already in status '{current_status}'",
+        }
 
+    eligible_tankers = get_eligible_tankers_for_batch(db, batch)
     if not eligible_tankers:
         return {
             "assigned": False,
@@ -203,7 +227,12 @@ def assign_batch(db: Session, batch: Batch, members: list[BatchMember]) -> dict:
             "reason": "No eligible tankers found",
         }
 
-    ranked = rank_tankers_for_batch(db, batch, members, eligible_tankers)
+    ranked = rank_tankers_for_batch(
+        db=db,
+        batch=batch,
+        members=members,
+        tankers=eligible_tankers,
+    )
 
     if not ranked:
         return {
@@ -213,35 +242,37 @@ def assign_batch(db: Session, batch: Batch, members: list[BatchMember]) -> dict:
         }
 
     best = ranked[0]
-    tanker = best["tanker"]
+    tanker: Tanker = best["tanker"]
 
-    # Your actual assignment logic here:
+    # Assign tanker to batch
     # tanker.status = "assigned"
-    # tanker.current_request_id = ...
-    # batch.tanker_id = tanker.id (if field exists)
-    # create job_offer if you want
-    # commit
+    tanker.status = "assigned"
+    tanker.is_available = False
+
+    batch.status = "assigned"
+    batch.tanker_id = tanker.id
+
+    # If your Tanker model uses current_request_id only for priority,
+    # leave it alone here unless you intentionally reuse it for batches.
+    # If your Batch model has tanker_id, set it.
+    if hasattr(batch, "tanker_id"):
+        batch.tanker_id = tanker.id
+
+    # db.add(tanker)
+    # db.add(batch)
+    db.commit()
+    db.refresh(tanker)
+    db.refresh(batch)
 
     return {
         "assigned": True,
         "batch_id": batch.id,
         "tanker_id": tanker.id,
+        "tanker_name": getattr(tanker, "driver_name", None),
         "score": best["score"],
+        "score_breakdown": best["breakdown"],
+        "reason": "Best eligible tanker assigned successfully",
     }
-
-def rank_tankers_for_batch(db: Session, batch: Batch, members: list[BatchMember], tankers: list) -> list[dict]:
-    ranked = []
-
-    for tanker in tankers:
-        breakdown = score_driver_for_batch(db=db, tanker=tanker, batch=batch, members=members)
-        ranked.append({
-            "tanker": tanker,
-            "score": breakdown["final_score"],
-            "breakdown": breakdown,
-        })
-
-    ranked.sort(key=lambda item: item["score"], reverse=True)
-    return ranked
 
 
 def get_eligible_tankers_for_batch(db: Session, batch: Batch) -> list[Tanker]:
@@ -267,10 +298,13 @@ def get_eligible_tankers_for_batch(db: Session, batch: Batch) -> list[Tanker]:
         if not is_online:
             continue
 
-        if status not in {"available", "idle"}:
-            continue
+        # if status not in {"available", "idle"}:
+        #     continue
+        status == "available"
 
-        if paused_until is not None:
+        # if paused_until is not None:
+        #     continue
+        if paused_until and paused_until > datetime.utcnow():
             continue
 
         tanker_lat = getattr(tanker, "latitude", None)
@@ -324,68 +358,3 @@ def rank_tankers_for_batch(
     return ranked
 
 
-def assign_batch(
-    db: Session,
-    batch: Batch,
-    members: list[BatchMember],
-) -> dict[str, Any]:
-    """
-    Assign the best tanker to a ready batch.
-    """
-    current_status = str(getattr(batch, "status", "") or "").lower()
-    if current_status in {"assigned", "loading", "delivering", "completed"}:
-        return {
-            "assigned": False,
-            "batch_id": batch.id,
-            "reason": f"Batch already in status '{current_status}'",
-        }
-
-    eligible_tankers = get_eligible_tankers_for_batch(db, batch)
-    if not eligible_tankers:
-        return {
-            "assigned": False,
-            "batch_id": batch.id,
-            "reason": "No eligible tankers found",
-        }
-
-    ranked = rank_tankers_for_batch(
-        db=db,
-        batch=batch,
-        members=members,
-        tankers=eligible_tankers,
-    )
-
-    if not ranked:
-        return {
-            "assigned": False,
-            "batch_id": batch.id,
-            "reason": "No ranked tanker candidates available",
-        }
-
-    best = ranked[0]
-    tanker: Tanker = best["tanker"]
-
-    # Assign tanker to batch
-    tanker.status = "assigned"
-
-    # If your Tanker model uses current_request_id only for priority,
-    # leave it alone here unless you intentionally reuse it for batches.
-    # If your Batch model has tanker_id, set it.
-    if hasattr(batch, "tanker_id"):
-        batch.tanker_id = tanker.id
-
-    db.add(tanker)
-    db.add(batch)
-    db.commit()
-    db.refresh(tanker)
-    db.refresh(batch)
-
-    return {
-        "assigned": True,
-        "batch_id": batch.id,
-        "tanker_id": tanker.id,
-        "tanker_name": getattr(tanker, "driver_name", None),
-        "score": best["score"],
-        "score_breakdown": best["breakdown"],
-        "reason": "Best eligible tanker assigned successfully",
-    }

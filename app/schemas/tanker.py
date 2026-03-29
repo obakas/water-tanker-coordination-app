@@ -9,6 +9,7 @@ TankerStatus = Literal[
     "delivering",
     "arrived",
     "completed",
+    "offline",
 ]
 
 

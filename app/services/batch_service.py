@@ -20,17 +20,19 @@ def recalculate_batch_volume(db: Session, batch_id: int) -> Batch:
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
 
-    active_members = (
+    confirmed_members = (
         db.query(BatchMember)
         .filter(
             BatchMember.batch_id == batch_id,
-            BatchMember.status == "active",
+            # BatchMember.status == "active",
+            BatchMember.status == "confirmed",
             BatchMember.payment_status == "paid",
         )
         .all()
     )
 
-    batch.current_volume = sum(member.volume_liters for member in active_members)
+    # batch.current_volume = sum(member.volume_liters for member in active)
+    batch.current_volume = sum(member.volume_liters for member in confirmed_members)
 
     db.add(batch)
     db.commit()
@@ -166,7 +168,9 @@ def update_batch_current_volume(db: Session, batch_id: int):
     paid_members = [
         m for m in members
         if getattr(m, "payment_status", None) == "paid"
-        and getattr(m, "status", None) == "active"
+        # and getattr(m, "status", None) == "active"
+        and getattr(m, "status", None) == "confirmed"
+        
     ]
 
     batch.current_volume = sum(

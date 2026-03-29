@@ -6,7 +6,8 @@ from app.models.batch_member import BatchMember
 from app.services.batch_member_service import leave_batch_member
 from app.services.batch_orchestration_service import (
     refresh_batch_state,
-    maybe_assign_tanker_to_batch,
+    # maybe_assign_tanker_to_batch,
+    assign_tanker_if_ready
 )
 
 router = APIRouter(prefix="/batch-members", tags=["Batch Members"])

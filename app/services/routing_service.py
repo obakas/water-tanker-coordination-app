@@ -47,50 +47,6 @@ def calculate_batch_center(members: list[BatchMember]) -> tuple[float, float]:
     return avg_lat, avg_lon
 
 
-def find_closest_tanker_to_batch(tankers: list[Tanker], batch) -> Tanker | None:
-    valid_tankers = [
-        t for t in tankers
-        if t.latitude is not None and t.longitude is not None
-    ]
-
-    if not valid_tankers:
-        return None
-
-    return min(
-        valid_tankers,
-        key=lambda t: calculate_distance_km(
-            t.longitude,
-            t.latitude,
-            batch.longitude,
-            batch.latitude,
-        ),
-    )
-
-
-def find_closest_tanker_to_location(
-    tankers: list[Tanker],
-    latitude: float,
-    longitude: float,
-) -> Tanker | None:
-    valid_tankers = [
-        t for t in tankers
-        if t.latitude is not None and t.longitude is not None
-    ]
-
-    if not valid_tankers:
-        return None
-
-    return min(
-        valid_tankers,
-        key=lambda t: calculate_distance_km(
-            t.longitude,
-            t.latitude,
-            longitude,
-            latitude,
-        ),
-    )
-
-
 def optimize_delivery_order(
     start_lon: float,
     start_lat: float,
@@ -179,3 +135,48 @@ def plan_batch_delivery_order(batch, members: list) -> list[dict]:
         remaining.remove(next_member)
 
     return ordered
+
+
+
+def find_closest_tanker_to_location(
+    tankers: list[Tanker],
+    latitude: float,
+    longitude: float,
+) -> Tanker | None:
+    valid_tankers = [
+        t for t in tankers
+        if t.latitude is not None and t.longitude is not None
+    ]
+
+    if not valid_tankers:
+        return None
+
+    return min(
+        valid_tankers,
+        key=lambda t: calculate_distance_km(
+            t.longitude,
+            t.latitude,
+            longitude,
+            latitude,
+        ),
+    )
+
+
+def find_closest_tanker_to_batch(tankers: list[Tanker], batch) -> Tanker | None:
+    valid_tankers = [
+        t for t in tankers
+        if t.latitude is not None and t.longitude is not None
+    ]
+
+    if not valid_tankers:
+        return None
+
+    return min(
+        valid_tankers,
+        key=lambda t: calculate_distance_km(
+            t.longitude,
+            t.latitude,
+            batch.longitude,
+            batch.latitude,
+        ),
+    )

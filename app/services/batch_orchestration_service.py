@@ -1,8 +1,6 @@
-# app/services/batch_orchestration_service.py
-
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -22,7 +20,7 @@ from app.services.batch_service import (
     update_batch_status,
     update_batch_current_volume,
 )
-from app.services.assignment_service import assign_batch
+from app.services.assignment_service import assign_best_tanker_for_batch
 from app.services.routing_service import plan_batch_delivery_order
 
 
@@ -66,7 +64,6 @@ def determine_next_batch_status(batch: Batch, members: list[BatchMember]) -> str
     """
     current_status = str(getattr(batch, "status", "forming") or "forming").lower()
 
-    # Don't disturb terminal/operational statuses from delivery flow.
     protected_statuses = {"assigned", "loading", "delivering", "completed", "expired", "cancelled"}
     if current_status in protected_statuses:
         return current_status
@@ -83,7 +80,7 @@ def determine_next_batch_status(batch: Batch, members: list[BatchMember]) -> str
     return "forming"
 
 
-def refresh_batch_state(db: Session, batch_id: int) -> dict:
+def refresh_batch_state(db: Session, batch_id: int) -> dict[str, Any]:
     batch = get_batch_by_id(db, batch_id)
     if not batch:
         raise ValueError(f"Batch {batch_id} not found")
@@ -92,16 +89,9 @@ def refresh_batch_state(db: Session, batch_id: int) -> dict:
     db.refresh(batch)
 
     members = get_batch_members(db, batch.id)
-    health = calculate_batch_health_score(db, members)
+    health = calculate_batch_health_score(batch, members)
 
-    if should_expire_batch(batch, members):
-        batch.status = "expired"
-    elif is_batch_ready_for_assignment(batch, members):
-        batch.status = "ready_for_assignment"
-    elif is_batch_near_ready(batch, members):
-        batch.status = "near_ready"
-    else:
-        batch.status = "forming"
+    batch.status = determine_next_batch_status(batch, members)
 
     db.add(batch)
     db.commit()
@@ -114,6 +104,7 @@ def refresh_batch_state(db: Session, batch_id: int) -> dict:
         "target_volume": batch.target_volume,
         "health": health,
     }
+
 
 def handle_batch_member_join(
     db: Session,
@@ -131,8 +122,8 @@ def handle_batch_payment_confirmed(
     member_id: int,
 ) -> dict[str, Any]:
     """
-    Call this after a specific batch member payment succeeds.
-    Marks the member as paid/active, then refreshes the batch lifecycle.
+    Call this after payment_service has already marked the member as paid/active.
+    This function only refreshes lifecycle state and triggers assignment if needed.
     """
     member = (
         db.query(BatchMember)
@@ -146,26 +137,21 @@ def handle_batch_payment_confirmed(
     if not member:
         raise ValueError(f"Batch member {member_id} not found in batch {batch_id}")
 
-    member.payment_status = "paid"
-    member.status = "active"
-
-    if hasattr(member, "is_active"):
-        member.is_active = True
-
-    db.add(member)
-    db.commit()
-    db.refresh(member)
+    batch = get_batch_by_id(db, batch_id)
+    if not batch:
+        raise ValueError(f"Batch {batch_id} not found")
 
     snapshot = refresh_batch_state(db, batch_id)
+    db.refresh(batch)
 
-    if snapshot["status"] == "ready_for_assignment":
-        assignment_result = maybe_assign_tanker_to_batch(db, batch_id)
+    if snapshot["status"] == "ready_for_assignment" and not getattr(batch, "tanker_id", None):
+        assignment_result = assign_tanker_if_ready(db, batch_id)
         snapshot["assignment"] = assignment_result
 
     return snapshot
 
 
-def maybe_assign_tanker_to_batch(db: Session, batch_id: int) -> dict[str, Any]:
+def assign_tanker_if_ready(db: Session, batch_id: int) -> dict[str, Any]:
     batch = get_batch_by_id(db, batch_id)
     if not batch:
         raise ValueError(f"Batch {batch_id} not found")
@@ -186,17 +172,16 @@ def maybe_assign_tanker_to_batch(db: Session, batch_id: int) -> dict[str, Any]:
             "batch_id": batch_id,
         }
 
-    result = assign_batch(db=db, batch=batch, members=members)
+    if getattr(batch, "tanker_id", None):
+        return {
+            "assigned": False,
+            "reason": "Batch already has a tanker assigned",
+            "batch_id": batch_id,
+        }
 
-    # Expecting assignment_service.assign_batch() to return something like:
-    # {
-    #   "assigned": True/False,
-    #   "tanker_id": ...,
-    #   "batch_id": ...,
-    #   "reason": ...
-    # }
+    result = assign_best_tanker_for_batch(db=db, batch=batch, members=members)
+
     if result.get("assigned"):
-        update_batch_status(db, batch, "assigned")
         db.refresh(batch)
 
     return result
@@ -211,6 +196,10 @@ def prepare_batch_for_delivery(db: Session, batch_id: int) -> dict[str, Any]:
         raise ValueError(f"Batch {batch_id} not found")
 
     members = get_batch_members(db, batch_id)
+
+    if batch.status not in {"assigned", "loading"}:
+        return {"error": "Batch not ready for delivery planning"}
+
     ordered_stops = plan_batch_delivery_order(batch=batch, members=members)
 
     return {

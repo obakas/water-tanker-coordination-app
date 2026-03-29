@@ -26,7 +26,8 @@ def leave_batch_member(db: Session, member_id: int) -> dict:
             detail=f"Cannot leave batch while batch status is '{batch.status}'"
         )
 
-    if member.status != "active":
+    # if member.status != "active":
+    if member.status != "confirmed":
         raise HTTPException(
             status_code=400,
             detail=f"Cannot leave batch because member status is '{member.status}'"

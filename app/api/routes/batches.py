@@ -10,7 +10,8 @@ from app.services.batch_live_service import get_batch_live_snapshot
 from app.services.batch_member_service import leave_batch_member
 from app.services.batch_orchestration_service import (
     handle_stale_batch,
-    maybe_assign_tanker_to_batch,
+    # maybe_assign_tanker_to_batch,
+    assign_tanker_if_ready,
     prepare_batch_for_delivery,
     refresh_batch_state,
 )
@@ -90,7 +91,8 @@ def refresh_batch(batch_id: int, db: Session = Depends(get_db)):
 @router.post("/{batch_id}/assign")
 def assign_batch(batch_id: int, db: Session = Depends(get_db)):
     try:
-        result = maybe_assign_tanker_to_batch(db, batch_id)
+        # result = maybe_assign_tanker_to_batch(db, batch_id)
+        result = assign_tanker_if_ready(db, batch_id)
         return result
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
