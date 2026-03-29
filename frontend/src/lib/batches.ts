@@ -28,6 +28,7 @@ export interface BatchLiveResponse {
   | "assigned"
   | "loading"
   | "delivering"
+  | "arrived"
   | "completed"
   | "expired";
   current_volume: number;

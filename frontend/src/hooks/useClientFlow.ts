@@ -75,6 +75,9 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     if (status === "delivering") {
       return "delivery";
     }
+    if (status === "arrived") {
+      return "arrived";
+    }
 
     if (status === "completed") {
       return "completed";

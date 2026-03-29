@@ -4,6 +4,7 @@ export type ClientStep =
   | "batch"
   | "tanker"
   | "delivery"
+  | "arrived"
   | "completed"
   | "expired";
 

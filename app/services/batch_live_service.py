@@ -1,7 +1,4 @@
-from enum import member
-
 from sqlalchemy.orm import Session
-from app.schemas import batch
 from app.services.batch_service import get_batch_by_id, get_batch_members
 
 
@@ -39,12 +36,17 @@ def get_batch_live_snapshot(db: Session, batch_id: int, member_id: int | None = 
         if not member:
             raise ValueError(f"Member {member_id} not found in batch {batch_id}")
 
-    active_members = [m for m in members if getattr(m, "is_active", True)]
+    # active_members = [m for m in members if getattr(m, "is_active", True)]
+    active_members = [
+    m for m in members
+    if getattr(m, "status", None) == "active"
+    and getattr(m, "payment_status", None) == "paid"
+]
 
-    paid_members = [
-        m for m in members
-        if getattr(m, "payment_status", None) == "paid"
-    ]
+    # paid_members = [
+    #     m for m in members
+    #     if getattr(m, "payment_status", None) == "paid"
+    # ]
 
     tanker = getattr(batch, "tanker", None)
     if tanker is None and getattr(batch, "tanker_id", None):
@@ -74,7 +76,8 @@ def get_batch_live_snapshot(db: Session, batch_id: int, member_id: int | None = 
         "tanker_id": tanker.id if tanker else None,
         "driver_name": tanker.driver_name if tanker else None,
         "otp": getattr(member, "delivery_otp", None) if member else None,
-        "is_member_active": getattr(member, "is_active", None) if member else None,
+        # "is_member_active": getattr(member, "is_active", None) if member else None,
+        "is_member_active": (getattr(member, "status", None) == "active"and getattr(member, "payment_status", None) == "paid") if member else None,
         "refund_eligible": refund_eligible,
         "member_id": member.id if member else None,
         "member_status": getattr(member, "status", None) if member else None,
