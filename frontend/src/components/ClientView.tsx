@@ -11,6 +11,8 @@ import { useClientFlow } from "@/hooks/useClientFlow";
 import type { ClientViewProps } from "@/types/client";
 import AuthModal from "@/components/client/AuthModal";
 import ThemeToggle from "@/components/ui/ThemeToggle";
+import ExpiredBatchStep  from "@/components/client/ExpiredBatchStep";
+
 
 
 const ClientView = ({ onBack }: ClientViewProps) => {
@@ -56,6 +58,9 @@ const ClientView = ({ onBack }: ClientViewProps) => {
     setPriorityMode,
     scheduledFor,
     setScheduledFor,
+    liveBatch,
+    liveBatchLoading,
+    liveBatchError,
   } = useClientFlow({ onBack });
 
 
@@ -168,6 +173,9 @@ const ClientView = ({ onBack }: ClientViewProps) => {
             batchId={batchId}
             requestId={requestId}
             paymentDeadline={paymentDeadline}
+            liveBatch={liveBatch}
+            liveBatchLoading={liveBatchLoading}
+            liveBatchError={liveBatchError}
           />
         )}
 
@@ -202,6 +210,16 @@ const ClientView = ({ onBack }: ClientViewProps) => {
             price={price}
             otp={otp}
             onBackHome={resetClientFlow}
+          />
+        )}
+
+        {/* Step: Expired */}
+        {step === "expired" && (
+          <ExpiredBatchStep
+            liveBatch={liveBatch}
+            memberId={memberId}
+            onBackHome={resetClientFlow}
+            refreshLiveBatch={() => {}}
           />
         )}
       </div>

@@ -124,7 +124,7 @@ export function BatchLifecycleCard({ batch, isLoading = false }: BatchLifecycleC
                         Search radius: {batch.search_radius_km ?? 1} km
                     </p>
 
-                    {batch.assigned_tanker ? (
+                    {/* {batch.assigned_tanker ? (
                         <>
                             <p className="mt-2 font-semibold">{batch.assigned_tanker.driver_name}</p>
                             <p className="text-sm text-muted-foreground">
@@ -136,11 +136,11 @@ export function BatchLifecycleCard({ batch, isLoading = false }: BatchLifecycleC
                         </>
                     ) : (
                         <p className="text-sm text-muted-foreground">No tanker assigned yet</p>
-                    )}
+                    )} */}
                 </div>
             </div>
 
-            {batch.delivery_plan.length > 0 && (
+            {/* {batch.delivery_plan.length > 0 && (
                 <div className="rounded-xl border p-4 space-y-3">
                     <h4 className="font-semibold">Delivery Plan</h4>
                     <div className="space-y-2">
@@ -165,7 +165,7 @@ export function BatchLifecycleCard({ batch, isLoading = false }: BatchLifecycleC
                         ))}
                     </div>
                 </div>
-            )}
+            )} */}
         </div>
     );
 }

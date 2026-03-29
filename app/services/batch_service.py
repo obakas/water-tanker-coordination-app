@@ -15,6 +15,28 @@ from app.services.routing_service import calculate_distance_km
 RADIUS_KM = 1.0
 PAYMENT_WINDOW_MINUTES = 10
 
+def recalculate_batch_volume(db: Session, batch_id: int) -> Batch:
+    batch = db.query(Batch).filter(Batch.id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+
+    active_members = (
+        db.query(BatchMember)
+        .filter(
+            BatchMember.batch_id == batch_id,
+            BatchMember.status == "active",
+            BatchMember.payment_status == "paid",
+        )
+        .all()
+    )
+
+    batch.current_volume = sum(member.volume_liters for member in active_members)
+
+    db.add(batch)
+    db.commit()
+    db.refresh(batch)
+    return batch
+
 
 def create_new_batch_with_request(db: Session, request: LiquidRequest) -> dict[str, Any]:
     """
@@ -134,20 +156,29 @@ def update_batch_center(db: Session, batch: Batch) -> Batch:
     db.refresh(batch)
     return batch
 
-def update_batch_current_volume(db: Session, batch: Batch) -> Batch:
-    members = db.query(BatchMember).filter(BatchMember.batch_id == batch.id).all()
+def update_batch_current_volume(db: Session, batch_id: int):
+    batch = get_batch_by_id(db, batch_id)
+    if not batch:
+        raise ValueError(f"Batch {batch_id} not found")
 
-    total_paid_volume = 0
-    for member in members:
-        payment_status = str(getattr(member, "payment_status", "") or "").lower()
-        if payment_status in {"paid", "completed", "success", "confirmed"}:
-            total_paid_volume += int(getattr(member, "volume_liters", 0) or 0)
+    members = get_batch_members(db, batch_id) or []
 
-    batch.current_volume = total_paid_volume
+    paid_members = [
+        m for m in members
+        if getattr(m, "payment_status", None) == "paid"
+        and getattr(m, "status", None) == "active"
+    ]
+
+    batch.current_volume = sum(
+        float(getattr(m, "volume_liters", 0) or 0)
+        for m in paid_members
+    )
+
     db.add(batch)
     db.commit()
     db.refresh(batch)
-    return batch
+
+    return batch.current_volume
 
 
 def recalculate_batch_volume(db: Session, batch_id: int) -> Batch:

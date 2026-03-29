@@ -83,41 +83,22 @@ def determine_next_batch_status(batch: Batch, members: list[BatchMember]) -> str
     return "forming"
 
 
-# def refresh_batch_state(db: Session, batch_id: int) -> dict[str, Any]:
-#     batch = get_batch_by_id(db, batch_id)
-#     if not batch:
-#         raise ValueError(f"Batch {batch_id} not found")
-
-#     members = get_batch_members(db, batch_id)
-
-#     # Keep volume synced before scoring
-#     update_batch_current_volume(db, batch)
-#     db.refresh(batch)
-
-#     members = get_batch_members(db, batch_id)
-#     next_status = determine_next_batch_status(batch, members)
-
-#     if getattr(batch, "status", None) != next_status:
-#         update_batch_status(db, batch, next_status)
-#         db.refresh(batch)
-
-#     members = get_batch_members(db, batch_id)
-#     return build_batch_state_snapshot(batch, members)
-
 def refresh_batch_state(db: Session, batch_id: int) -> dict:
     batch = get_batch_by_id(db, batch_id)
     if not batch:
         raise ValueError(f"Batch {batch_id} not found")
 
     update_batch_current_volume(db, batch.id)
+    db.refresh(batch)
 
-    health = calculate_batch_health_score(db, batch.id)
+    members = get_batch_members(db, batch.id)
+    health = calculate_batch_health_score(db, members)
 
-    if should_expire_batch(batch):
+    if should_expire_batch(batch, members):
         batch.status = "expired"
-    elif is_batch_ready_for_assignment(batch):
+    elif is_batch_ready_for_assignment(batch, members):
         batch.status = "ready_for_assignment"
-    elif is_batch_near_ready(batch):
+    elif is_batch_near_ready(batch, members):
         batch.status = "near_ready"
     else:
         batch.status = "forming"
@@ -127,10 +108,12 @@ def refresh_batch_state(db: Session, batch_id: int) -> dict:
     db.refresh(batch)
 
     return {
-        "batch": batch,
+        "batch_id": batch.id,
+        "status": batch.status,
+        "current_volume": batch.current_volume,
+        "target_volume": batch.target_volume,
         "health": health,
     }
-
 
 def handle_batch_member_join(
     db: Session,
@@ -145,11 +128,34 @@ def handle_batch_member_join(
 def handle_batch_payment_confirmed(
     db: Session,
     batch_id: int,
+    member_id: int,
 ) -> dict[str, Any]:
     """
-    Call this after a batch member payment succeeds.
-    This is the most important trigger in the batch flow.
+    Call this after a specific batch member payment succeeds.
+    Marks the member as paid/active, then refreshes the batch lifecycle.
     """
+    member = (
+        db.query(BatchMember)
+        .filter(
+            BatchMember.id == member_id,
+            BatchMember.batch_id == batch_id,
+        )
+        .first()
+    )
+
+    if not member:
+        raise ValueError(f"Batch member {member_id} not found in batch {batch_id}")
+
+    member.payment_status = "paid"
+    member.status = "active"
+
+    if hasattr(member, "is_active"):
+        member.is_active = True
+
+    db.add(member)
+    db.commit()
+    db.refresh(member)
+
     snapshot = refresh_batch_state(db, batch_id)
 
     if snapshot["status"] == "ready_for_assignment":

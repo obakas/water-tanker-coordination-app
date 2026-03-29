@@ -9,6 +9,7 @@ from app.services.batch_scoring_service import (
     is_batch_ready_for_assignment,
 )
 from app.services.assignment_service import assign_batch
+from app.services.batch_service import recalculate_batch_volume
 from app.services.routing_service import plan_batch_delivery_order
 
 
@@ -20,6 +21,30 @@ ACTIVE_BATCH_STATUSES = [
     "loading",
     "delivering",
 ]
+
+def refresh_batch_after_member_change(db: Session, batch_id: int) -> Batch:
+    batch = recalculate_batch_volume(db, batch_id)
+
+    fill_ratio = 0
+    if batch.target_volume > 0:
+        fill_ratio = batch.current_volume / batch.target_volume
+
+    if batch.status in {"assigned", "loading", "delivering", "completed", "expired"}:
+        return batch
+
+    if batch.current_volume <= 0:
+        batch.status = "forming"
+    elif fill_ratio < 0.8:
+        batch.status = "forming"
+    elif fill_ratio < 1.0:
+        batch.status = "near_ready"
+    else:
+        batch.status = "ready_for_assignment"
+
+    db.add(batch)
+    db.commit()
+    db.refresh(batch)
+    return batch
 
 
 def get_active_batches(db: Session) -> list[Batch]:

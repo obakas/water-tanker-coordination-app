@@ -4,7 +4,8 @@ export type ClientStep =
   | "batch"
   | "tanker"
   | "delivery"
-  | "completed";
+  | "completed"
+  | "expired";
 
 export type RequestMode = "batch" | "priority";
 

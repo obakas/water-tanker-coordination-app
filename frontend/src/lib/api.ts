@@ -128,3 +128,15 @@ export function loginUser(payload: LoginUserPayload) {
     body: payload,
   });
 }
+
+export async function leaveBatchMember(memberId: number) {
+  return apiRequest(`/batch-members/${memberId}/leave`, {
+    method: "POST",
+  });
+}
+
+export async function confirmPayment(memberId: number) {
+  return apiRequest(`/batch-members/${memberId}/confirm-payment`, {
+    method: "POST",
+  });
+}

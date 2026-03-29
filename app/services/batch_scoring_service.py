@@ -67,14 +67,22 @@ def get_batch_age_hours(batch: Batch) -> float:
     return max((now - created_at).total_seconds() / 3600.0, 0.0)
 
 
-def calculate_fill_ratio(batch: Batch) -> float:
+def calculate_fill_ratio(batch: Batch, members: Iterable[BatchMember]) -> float:
+    # def calculate_fill_ratio(batch: Batch) -> float:
+    # current_volume = float(getattr(batch, "current_volume", 0) or 0)
+    # target_volume = float(getattr(batch, "target_volume", 0) or 0)
+
+    # current_volume = getattr(batch, "current_volume", None)
+    # target_volume = getattr(batch, "target_volume", None)
+
     current_volume = float(getattr(batch, "current_volume", 0) or 0)
     target_volume = float(getattr(batch, "target_volume", 0) or 0)
 
-    if target_volume <= 0:
+    if target_volume == 0:
         return 0.0
 
     return clamp(current_volume / target_volume)
+    # return float(current_volume / target_volume)
 
 
 def is_member_paid(member: BatchMember) -> bool:
@@ -164,7 +172,10 @@ def calculate_batch_health_score(
     """
     members = list(members)
 
-    fill_ratio = calculate_fill_ratio(batch)
+    fill_ratio = calculate_fill_ratio(batch, members)
+    # current_volume = getattr(batch, "current_volume", None)
+    # target_volume = getattr(batch, "target_volume", None)
+    # fill_ratio = current_volume / target_volume if target_volume > 0 else 0
     payment_ratio, paid_count, total_count = calculate_payment_ratio(members)
     geo_compactness = calculate_geo_compactness(batch, members)
     wait_urgency = calculate_wait_urgency(batch)
@@ -218,6 +229,9 @@ def should_widen_radius(batch: Batch, members: Iterable[BatchMember]) -> bool:
     """
     age_hours = get_batch_age_hours(batch)
     fill_ratio = calculate_fill_ratio(batch)
+    # current_volume = getattr(batch, "current_volume", None)
+    # target_volume = getattr(batch, "target_volume", None)
+    # fill_ratio = current_volume / target_volume if target_volume > 0 else 0
     payment_ratio, _, _ = calculate_payment_ratio(members)
 
     return age_hours >= 3 and fill_ratio < NEAR_READY_FILL_RATIO and payment_ratio < READY_PAYMENT_RATIO

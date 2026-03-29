@@ -1,22 +1,37 @@
 # app/api/routes/batches.py
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.schemas.batch import BatchLiveResponse
 from app.schemas.batch import BatchLiveResponse
 from app.services.batch_live_service import get_batch_live_snapshot
+from app.services.batch_member_service import leave_batch_member
 from app.services.batch_orchestration_service import (
     handle_stale_batch,
     maybe_assign_tanker_to_batch,
     prepare_batch_for_delivery,
     refresh_batch_state,
 )
-from app.services.batch_scoring_service import calculate_batch_health_score
 from app.services.batch_service import get_batch_by_id, get_batch_members
+import traceback
 
 router = APIRouter(prefix="/batches", tags=["Batches"])
+
+
+@router.post("/{batch_id}/force-expire")
+def force_expire_batch(batch_id: int, db: Session = Depends(get_db)):
+    batch = get_batch_by_id(db, batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+
+    batch.status = "expired"
+    db.add(batch)
+    db.commit()
+    db.refresh(batch)
+
+    return {"message": "Batch expired manually", "batch_id": batch.id, "status": batch.status}
 
 
 @router.get("/{batch_id}")
@@ -42,26 +57,7 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
     }
 
 
-# @router.get("/{batch_id}/health")
-# def get_batch_health(batch_id: int, db: Session = Depends(get_db)):
-#     batch = get_batch_by_id(db, batch_id)
-#     if not batch:
-#         raise HTTPException(status_code=404, detail="Batch not found")
 
-#     members = get_batch_members(db, batch_id)
-#     score = calculate_batch_health_score(batch, members)
-
-#     return {
-#         "batch_id": batch.id,
-#         "status": getattr(batch, "status", None),
-#         "health_score": score.health_score,
-#         "fill_ratio": score.fill_ratio,
-#         "payment_ratio": score.payment_ratio,
-#         "geo_compactness": score.geo_compactness,
-#         "wait_urgency": score.wait_urgency,
-#         "paid_members_count": score.paid_members_count,
-#         "total_members_count": score.total_members_count,
-#     }
 
 @router.get("/{batch_id}/health")
 def get_batch_health(batch_id: int, db: Session = Depends(get_db)):
@@ -71,25 +67,16 @@ def get_batch_health(batch_id: int, db: Session = Depends(get_db)):
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
-# @router.get("/{batch_id}/live", response_model=BatchLiveResponse)
-# def get_batch_live(batch_id: int, db: Session = Depends(get_db)):
-#     try:
-#         snapshot = get_batch_live_snapshot(db, batch_id)
-#         return snapshot
-#     except ValueError as e:
-#         raise HTTPException(status_code=404, detail=str(e))
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Failed to fetch live batch: {str(e)}")
-    
+
 @router.get("/{batch_id}/live", response_model=BatchLiveResponse)
-def get_batch_live(batch_id: int, db: Session = Depends(get_db)):
-    try:
-        return get_batch_live_snapshot(db, batch_id)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        print(f"[BATCH LIVE ERROR] batch_id={batch_id} error={e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch live batch: {str(e)}")
+def get_batch_live(
+    batch_id: int,
+    member_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    snapshot = get_batch_live_snapshot(db, batch_id, member_id)
+    print(f"[BATCH LIVE OK] batch_id={batch_id} member_id={member_id} snapshot={snapshot}")
+    return snapshot
     
 @router.post("/{batch_id}/refresh")
 def refresh_batch(batch_id: int, db: Session = Depends(get_db)):
@@ -126,19 +113,3 @@ def expire_check_batch(batch_id: int, db: Session = Depends(get_db)):
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
-
-# from fastapi import APIRouter
-
-# from app.services import batch_service
-
-# router = APIRouter(prefix="/batches", tags=["batches"])
-
-
-# @router.get("/")
-# def get_batches():
-#     return {"message": "Batches endpoint working"}
-
-
-# @router.post("/{batch_id}/join")
-# def join_batch(batch_id: int, payload: JoinBatchRequest, db: Session = Depends(get_db)):
-#     return batch_service.join_batch(db, batch_id, payload)
