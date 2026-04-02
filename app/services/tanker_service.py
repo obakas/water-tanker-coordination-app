@@ -141,7 +141,7 @@ def complete_batch_delivery(db: Session, tanker_id: int, batch_id: int) -> dict[
 
     members = db.query(BatchMember).filter(
         BatchMember.batch_id == batch.id,
-        BatchMember.status == "confirmed",
+        BatchMember.status == "active",
     ).all()
 
     for member in members:

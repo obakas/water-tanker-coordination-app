@@ -13,6 +13,7 @@ from app.services.driver_scoring_service import (
     haversine_km,
     score_driver_for_batch,
 )
+from app.services.delivery_service import (create_delivery_record_for_priority,create_delivery_records_for_batch)
 
 
 
@@ -170,6 +171,13 @@ def assign_best_tanker_for_priority(
     db.refresh(tanker)
     db.refresh(request)
 
+    # 🔥 CREATE DELIVERY RECORD (priority = single stop)
+    create_delivery_record_for_priority(
+    db,
+    request_id=request.id,
+    tanker_id=tanker.id,
+)
+
     create_job_offer(
         db,
         tanker_id=tanker.id,
@@ -264,6 +272,13 @@ def assign_best_tanker_for_batch(
     db.refresh(tanker)
     db.refresh(batch)
 
+    # 🔥 CREATE DELIVERY RECORDS (batch = multiple stops)
+    create_delivery_records_for_batch(
+    db,
+    batch_id=batch.id,
+    tanker_id=tanker.id,
+)
+
     return {
         "assigned": True,
         "batch_id": batch.id,
@@ -300,7 +315,9 @@ def get_eligible_tankers_for_batch(db: Session, batch: Batch) -> list[Tanker]:
 
         # if status not in {"available", "idle"}:
         #     continue
-        status == "available"
+        if status != "available":
+            continue
+        # status == "available"
 
         # if paused_until is not None:
         #     continue

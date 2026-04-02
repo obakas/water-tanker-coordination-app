@@ -25,7 +25,7 @@ def recalculate_batch_volume(db: Session, batch_id: int) -> Batch:
         .filter(
             BatchMember.batch_id == batch_id,
             # BatchMember.status == "active",
-            BatchMember.status == "confirmed",
+            BatchMember.status == "active",
             BatchMember.payment_status == "paid",
         )
         .all()
@@ -142,7 +142,7 @@ def update_batch_center(db: Session, batch: Batch) -> Batch:
     """
     members = db.query(BatchMember).filter(
         BatchMember.batch_id == batch.id,
-        BatchMember.status == "confirmed",
+        BatchMember.status == "active",
     ).all()
 
     if not members:
