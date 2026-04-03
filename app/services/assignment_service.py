@@ -1,7 +1,8 @@
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from sqlalchemy.orm import Session
+
 from app.models.batch import Batch
 from app.models.batch_member import BatchMember
 from app.models.tanker import Tanker
@@ -13,11 +14,14 @@ from app.services.driver_scoring_service import (
     haversine_km,
     score_driver_for_batch,
 )
-from app.services.delivery_service import (create_delivery_record_for_priority,create_delivery_records_for_batch)
-
-
+from app.services.delivery_service import (
+    create_delivery_record_for_priority,
+    create_delivery_records_for_batch,
+)
 
 MAX_BATCH_ASSIGNMENT_RADIUS_KM = 2.0
+OFFER_TTL_SECONDS = 60
+
 
 def get_eligible_tankers(db: Session):
     return db.query(Tanker).filter(
@@ -139,8 +143,6 @@ def assign_best_tanker_for_priority(
     request,
     offer_limit: int = 5,
 ):
-    
-
     ranked = rank_tankers_for_job(
         db,
         job_lat=request.latitude,
@@ -148,37 +150,23 @@ def assign_best_tanker_for_priority(
         job_type="priority",
     )
 
-    
-
     ranked = ranked[:offer_limit]
     if not ranked:
         return None
 
-    # V1: assign top driver immediately.
-    # Later, this becomes timed offer -> accept/decline/timeout.
     tanker, breakdown = ranked[0]
 
-    tanker.status = "assigned"
+    # OFFER-FIRST FLOW
+    tanker.pending_offer_type = "priority"
+    tanker.pending_offer_id = request.id
+    tanker.offer_expires_at = datetime.utcnow() + timedelta(seconds=OFFER_TTL_SECONDS)
+
+    tanker.status = "available"
     tanker.is_available = False
 
-    # priority.status = "assigned"
-    # request.status = "assigned"
-    
-    tanker.current_request_id = request.id
+    request.status = "searching_driver"
 
-    request.status = "assigned"
-    db.commit()
-    db.refresh(tanker)
-    db.refresh(request)
-
-    # 🔥 CREATE DELIVERY RECORD (priority = single stop)
-    create_delivery_record_for_priority(
-    db,
-    request_id=request.id,
-    tanker_id=tanker.id,
-)
-
-    create_job_offer(
+    offer = create_job_offer(
         db,
         tanker_id=tanker.id,
         job_type="priority",
@@ -187,8 +175,13 @@ def assign_best_tanker_for_priority(
         job_lon=request.longitude,
     )
 
+    db.commit()
+    db.refresh(tanker)
+    db.refresh(request)
+
     return {
         "tanker": tanker,
+        "offer_id": offer.id,
         "score_breakdown": breakdown,
         "ranked_candidates": [
             {

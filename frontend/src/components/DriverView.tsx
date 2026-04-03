@@ -4,6 +4,7 @@ import { DriverAvailableStep } from "@/components/driver/DriverAvailableStep";
 import { DriverLoadingStep } from "@/components/driver/DriverLoadingStep";
 import { DriverDeliveringStep } from "@/components/driver/DriverDeliveringStep";
 import { DriverCompletedStep } from "@/components/driver/DriverCompletedStep";
+import DriverIncomingOfferStep from "@/components/driver/DriverIncomingOfferStep";
 import DriverAuthModal from "@/components/driver/DriverAuthModal";
 import DriverHelpModal from "@/components/driver/DriverHelpModal";
 import { useDriverFlow } from "@/hooks/useDriverFlow";
@@ -20,6 +21,9 @@ const DriverView = ({ onBack }: DriverViewProps) => {
 
   const {
     step,
+    incomingOffer,
+    acceptOffer,
+    rejectOffer,
     activeJob,
     deliveries,
     currentDelivery,
@@ -58,6 +62,18 @@ const DriverView = ({ onBack }: DriverViewProps) => {
       );
     }
 
+    if (incomingOffer) {
+      return (
+        <DriverIncomingOfferStep
+          offer={incomingOffer}
+          isSubmitting={isActionLoading}
+          onAccept={acceptOffer}
+          onReject={rejectOffer}
+          onRefresh={refreshJob}
+        />
+      );
+    }
+
     switch (step) {
       case "offline":
       case "available":
@@ -72,7 +88,6 @@ const DriverView = ({ onBack }: DriverViewProps) => {
         );
 
       case "assigned":
-        // case "loading":
         return activeJob ? (
           <DriverAvailableStep
             job={activeJob}
@@ -84,7 +99,6 @@ const DriverView = ({ onBack }: DriverViewProps) => {
         ) : null;
 
       case "loading":
-        // case "loading":
         return activeJob ? (
           <DriverLoadingStep
             job={activeJob}
@@ -162,5 +176,3 @@ const DriverView = ({ onBack }: DriverViewProps) => {
 };
 
 export default DriverView;
-
-

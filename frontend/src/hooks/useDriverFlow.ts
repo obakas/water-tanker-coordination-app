@@ -5,6 +5,9 @@ import type { DriverJob, DriverStep, DriverStop } from "@/types/driver";
 import {
   fetchCurrentDriverJob,
   fetchCurrentStop,
+  fetchIncomingOffer,
+  acceptIncomingOffer,
+  rejectIncomingOffer,
   acceptDriverBatch,
   acceptDriverPriority,
   markDriverBatchLoaded,
@@ -18,6 +21,7 @@ import {
   skipStop,
   type DriverCurrentJobResponse,
   type DriverCurrentStopResponse,
+  type IncomingDriverOffer,
 } from "@/lib/driverApi";
 
 function mapJobResponseToDriverJob(
@@ -157,6 +161,7 @@ function getStepFromState(
 export const useDriverFlow = (driver: DriverUser | null) => {
   const [jobResponse, setJobResponse] = useState<DriverCurrentJobResponse | null>(null);
   const [stopResponse, setStopResponse] = useState<DriverCurrentStopResponse | null>(null);
+  const [incomingOffer, setIncomingOffer] = useState<IncomingDriverOffer | null>(null);
 
   const [isLoading, setIsLoading] = useState(false);
   const [isActionLoading, setIsActionLoading] = useState(false);
@@ -176,17 +181,20 @@ export const useDriverFlow = (driver: DriverUser | null) => {
     if (!tankerId) {
       setJobResponse(null);
       setStopResponse(null);
+      setIncomingOffer(null);
       return;
     }
 
     try {
       setIsLoading(true);
 
-      const [job, stop] = await Promise.all([
+      const [offerResult, job, stop] = await Promise.all([
+        fetchIncomingOffer(tankerId).catch(() => null),
         fetchCurrentDriverJob(tankerId).catch(() => null),
         fetchCurrentStop(tankerId).catch(() => null),
       ]);
 
+      setIncomingOffer(offerResult?.has_offer ? offerResult.offer : null);
       setJobResponse(job);
       setStopResponse(stop);
 
@@ -303,9 +311,52 @@ export const useDriverFlow = (driver: DriverUser | null) => {
     [refreshJob, resetInputs]
   );
 
+  const acceptOffer = useCallback(async () => {
+    if (!tankerId) {
+      toast.error("Please log in as a driver first.");
+      return;
+    }
+
+    if (!incomingOffer) {
+      toast.error("No incoming offer found.");
+      return;
+    }
+
+    await runAction(
+      async () => {
+        await acceptIncomingOffer(tankerId);
+      },
+      "Offer accepted successfully."
+    );
+  }, [tankerId, incomingOffer, runAction]);
+
+  const rejectOffer = useCallback(async () => {
+    if (!tankerId) {
+      toast.error("Please log in as a driver first.");
+      return;
+    }
+
+    if (!incomingOffer) {
+      toast.error("No incoming offer found.");
+      return;
+    }
+
+    await runAction(
+      async () => {
+        await rejectIncomingOffer(tankerId);
+      },
+      "Offer rejected successfully."
+    );
+  }, [tankerId, incomingOffer, runAction]);
+
   const acceptJob = useCallback(async () => {
     if (!tankerId) {
       toast.error("Please log in as a driver first.");
+      return;
+    }
+
+    if (incomingOffer) {
+      await acceptOffer();
       return;
     }
 
@@ -343,7 +394,7 @@ export const useDriverFlow = (driver: DriverUser | null) => {
       },
       "Priority job accepted successfully."
     );
-  }, [tankerId, jobResponse, runAction]);
+  }, [tankerId, incomingOffer, acceptOffer, jobResponse, runAction]);
 
   const markLoaded = useCallback(async () => {
     if (!tankerId) {
@@ -601,12 +652,17 @@ export const useDriverFlow = (driver: DriverUser | null) => {
   const resetToDashboard = useCallback(() => {
     setJobResponse(null);
     setStopResponse(null);
+    setIncomingOffer(null);
     setHadActiveStop(false);
     resetInputs();
   }, [resetInputs]);
 
   return {
     step,
+
+    incomingOffer,
+    acceptOffer,
+    rejectOffer,
 
     activeJob,
     deliveries,
@@ -641,10 +697,7 @@ export const useDriverFlow = (driver: DriverUser | null) => {
     acceptJob,
     markLoaded,
 
-    // legacy name kept so current DriverView still compiles
     markArrived,
-
-    // new delivery execution actions
     beginMeasurement,
     finishMeasurement,
     verifyOtp,

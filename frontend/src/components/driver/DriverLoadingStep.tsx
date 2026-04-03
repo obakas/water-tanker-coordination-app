@@ -30,7 +30,7 @@ export const DriverLoadingStep = ({
       <div className="space-y-3 rounded-xl border border-border bg-card p-5">
         <div className="flex justify-between text-sm">
           <span className="text-muted-foreground">Job</span>
-          <span className="font-medium text-foreground">#{job.batchId}</span>
+          <span className="font-medium text-foreground">#{job.jobId}</span>
         </div>
 
         <div className="flex justify-between text-sm">

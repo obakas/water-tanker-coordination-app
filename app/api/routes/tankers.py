@@ -13,8 +13,296 @@ from app.utils.status_rules import (
     TANKER_STATUS_TRANSITIONS,
     BATCH_STATUS_TRANSITIONS,
 )
+from app.models.job_offer import JobOffer
+from app.services.assignment_service import (
+    mark_offer_accepted,
+    mark_offer_declined,
+    mark_offer_timeout,
+)
+from app.services.delivery_service import create_delivery_record_for_priority
+
+
 
 router = APIRouter(prefix="/tankers", tags=["Tankers"])
+
+def get_tanker_or_404(db: Session, tanker_id: int) -> Tanker:
+    tanker = db.query(Tanker).filter(Tanker.id == tanker_id).first()
+    if not tanker:
+        raise HTTPException(status_code=404, detail="Tanker not found")
+    return tanker
+
+
+@router.get("/{tanker_id}/incoming-offer")
+def get_incoming_offer(tanker_id: int, db: Session = Depends(get_db)):
+    tanker = get_tanker_or_404(db, tanker_id)
+
+    if not tanker.pending_offer_type or not tanker.pending_offer_id or not tanker.offer_expires_at:
+        return {
+            "has_offer": False,
+            "offer": None,
+        }
+
+    if tanker.offer_expires_at <= datetime.utcnow():
+        offer = (
+            db.query(JobOffer)
+            .filter(
+                JobOffer.tanker_id == tanker.id,
+                JobOffer.request_id == tanker.pending_offer_id if tanker.pending_offer_type == "priority" else True,
+                JobOffer.batch_id == tanker.pending_offer_id if tanker.pending_offer_type == "batch" else True,
+                JobOffer.response_type.is_(None),
+            )
+            .order_by(JobOffer.id.desc())
+            .first()
+        )
+        if offer:
+            mark_offer_timeout(db, offer)
+
+        tanker.pending_offer_type = None
+        tanker.pending_offer_id = None
+        tanker.offer_expires_at = None
+        tanker.is_available = True
+        tanker.status = "available"
+        db.commit()
+
+        return {
+            "has_offer": False,
+            "offer": None,
+        }
+
+    seconds_left = max(int((tanker.offer_expires_at - datetime.utcnow()).total_seconds()), 0)
+
+    if tanker.pending_offer_type == "priority":
+        request = db.query(LiquidRequest).filter(LiquidRequest.id == tanker.pending_offer_id).first()
+        if not request:
+            tanker.pending_offer_type = None
+            tanker.pending_offer_id = None
+            tanker.offer_expires_at = None
+            tanker.is_available = True
+            tanker.status = "available"
+            db.commit()
+            return {"has_offer": False, "offer": None}
+
+        return {
+            "has_offer": True,
+            "offer": {
+                "type": "priority",
+                "id": request.id,
+                "expires_in_seconds": seconds_left,
+                "request_id": request.id,
+                "volume_liters": request.volume_liters,
+                "latitude": request.latitude,
+                "longitude": request.longitude,
+                "delivery_type": request.delivery_type,
+                "scheduled_for": request.scheduled_for.isoformat() if request.scheduled_for else None,
+            },
+        }
+
+    return {
+        "has_offer": False,
+        "offer": None,
+    }
+
+
+@router.post("/{tanker_id}/offers/accept")
+def accept_offer(tanker_id: int, db: Session = Depends(get_db)):
+    tanker = get_tanker_or_404(db, tanker_id)
+
+    if not tanker.pending_offer_type or not tanker.pending_offer_id or not tanker.offer_expires_at:
+        raise HTTPException(status_code=404, detail="No pending offer found")
+
+    if tanker.offer_expires_at <= datetime.utcnow():
+        offer = (
+            db.query(JobOffer)
+            .filter(
+                JobOffer.tanker_id == tanker.id,
+                JobOffer.response_type.is_(None),
+            )
+            .order_by(JobOffer.id.desc())
+            .first()
+        )
+        if offer:
+            mark_offer_timeout(db, offer)
+
+        tanker.pending_offer_type = None
+        tanker.pending_offer_id = None
+        tanker.offer_expires_at = None
+        tanker.is_available = True
+        tanker.status = "available"
+        db.commit()
+        raise HTTPException(status_code=400, detail="Offer has expired")
+
+    if tanker.pending_offer_type == "priority":
+        request = db.query(LiquidRequest).filter(LiquidRequest.id == tanker.pending_offer_id).first()
+        if not request:
+            raise HTTPException(status_code=404, detail="Priority request not found")
+
+        offer = (
+            db.query(JobOffer)
+            .filter(
+                JobOffer.tanker_id == tanker.id,
+                JobOffer.request_id == request.id,
+                JobOffer.response_type.is_(None),
+            )
+            .order_by(JobOffer.id.desc())
+            .first()
+        )
+
+        if offer:
+            response_seconds = (datetime.utcnow() - offer.offered_at).total_seconds()
+            mark_offer_accepted(db, offer, response_seconds=response_seconds)
+
+        tanker.current_request_id = request.id
+        tanker.status = "assigned"
+        tanker.is_available = False
+
+        request.status = "assigned"
+
+        tanker.pending_offer_type = None
+        tanker.pending_offer_id = None
+        tanker.offer_expires_at = None
+
+        db.commit()
+        db.refresh(tanker)
+        db.refresh(request)
+
+        create_delivery_record_for_priority(
+            db,
+            request_id=request.id,
+            tanker_id=tanker.id,
+        )
+
+        return {
+            "message": "Offer accepted successfully",
+            "tanker_id": tanker.id,
+            "request_id": request.id,
+            "status": tanker.status,
+        }
+
+    raise HTTPException(status_code=400, detail="Unsupported offer type")
+
+
+@router.post("/{tanker_id}/offers/reject")
+def reject_offer(tanker_id: int, db: Session = Depends(get_db)):
+    tanker = get_tanker_or_404(db, tanker_id)
+
+    if not tanker.pending_offer_type or not tanker.pending_offer_id:
+        raise HTTPException(status_code=404, detail="No pending offer found")
+
+    offer = (
+        db.query(JobOffer)
+        .filter(
+            JobOffer.tanker_id == tanker.id,
+            JobOffer.response_type.is_(None),
+        )
+        .order_by(JobOffer.id.desc())
+        .first()
+    )
+
+    if offer:
+        response_seconds = (datetime.utcnow() - offer.offered_at).total_seconds()
+        mark_offer_declined(
+            db,
+            offer,
+            decline_reason="driver_rejected",
+            response_seconds=response_seconds,
+        )
+
+    request_id = tanker.pending_offer_id if tanker.pending_offer_type == "priority" else None
+
+    tanker.pending_offer_type = None
+    tanker.pending_offer_id = None
+    tanker.offer_expires_at = None
+    tanker.is_available = True
+    tanker.status = "available"
+
+    if request_id:
+        request = db.query(LiquidRequest).filter(LiquidRequest.id == request_id).first()
+        if request:
+            request.status = "searching_driver"
+
+    db.commit()
+
+    return {
+        "message": "Offer rejected successfully",
+        "tanker_id": tanker.id,
+    }
+
+@router.post("/{tanker_id}/offers/accept")
+def accept_offer(tanker_id: int, db: Session = Depends(get_db)):
+    tanker = get_tanker_or_404(db, tanker_id)
+
+    if not tanker.pending_offer_type or not tanker.pending_offer_id or not tanker.offer_expires_at:
+        raise HTTPException(status_code=404, detail="No pending offer found")
+
+    if tanker.offer_expires_at <= datetime.utcnow():
+        tanker.pending_offer_type = None
+        tanker.pending_offer_id = None
+        tanker.offer_expires_at = None
+        tanker.is_available = True
+        tanker.status = "available"
+        db.commit()
+        raise HTTPException(status_code=400, detail="Offer has expired")
+
+    if tanker.pending_offer_type == "priority":
+        request = db.query(LiquidRequest).filter(LiquidRequest.id == tanker.pending_offer_id).first()
+        if not request:
+            raise HTTPException(status_code=404, detail="Priority request not found")
+
+        tanker.current_request_id = request.id
+        tanker.status = "assigned"
+        tanker.is_available = False
+
+        request.tanker_id = tanker.id
+        request.status = "assigned"
+
+    elif tanker.pending_offer_type == "batch":
+        batch = db.query(Batch).filter(Batch.id == tanker.pending_offer_id).first()
+        if not batch:
+            raise HTTPException(status_code=404, detail="Batch not found")
+
+        batch.tanker_id = tanker.id
+        batch.status = "assigned"
+
+        tanker.status = "assigned"
+        tanker.is_available = False
+
+    tanker.pending_offer_type = None
+    tanker.pending_offer_id = None
+    tanker.offer_expires_at = None
+
+    db.commit()
+    db.refresh(tanker)
+
+    return {
+        "message": "Offer accepted successfully",
+        "tanker_id": tanker.id,
+        "status": tanker.status,
+    }
+
+
+@router.post("/{tanker_id}/offers/reject")
+def reject_offer(tanker_id: int, db: Session = Depends(get_db)):
+    tanker = get_tanker_or_404(db, tanker_id)
+
+    if not tanker.pending_offer_type or not tanker.pending_offer_id:
+        raise HTTPException(status_code=404, detail="No pending offer found")
+
+    offer_type = tanker.pending_offer_type
+    offer_id = tanker.pending_offer_id
+
+    tanker.pending_offer_type = None
+    tanker.pending_offer_id = None
+    tanker.offer_expires_at = None
+    tanker.is_available = True
+    tanker.status = "available"
+
+    db.commit()
+
+    return {
+        "message": "Offer rejected successfully",
+        "offer_type": offer_type,
+        "offer_id": offer_id,
+    }
 
 
 def get_tanker_or_404(db: Session, tanker_id: int) -> Tanker:
@@ -59,9 +347,12 @@ def create_tanker(payload: TankerCreate, db: Session = Depends(get_db)):
         driver_name=payload.driver_name,
         phone=payload.phone,
         tank_plate_number=normalized_plate,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
         status="available",
         is_available=True,
         current_request_id=None,
+        is_online=True,
     )
 
     db.add(tanker)
@@ -121,122 +412,6 @@ def update_tanker(
     return tanker
 
 
-@router.get("/{tanker_id}/current-job")
-def get_current_job(tanker_id: int, db: Session = Depends(get_db)):
-    tanker = get_tanker_or_404(db, tanker_id)
-
-    # Active priority request
-    if tanker.current_request_id:
-        request = (
-            db.query(LiquidRequest)
-            .filter(LiquidRequest.id == tanker.current_request_id)
-            .first()
-        )
-
-        if request:
-            return {
-                "job_type": "priority",
-                "tanker": {
-                    "id": tanker.id,
-                    "driver_name": tanker.driver_name,
-                    "phone": tanker.phone,
-                    "tank_plate_number": tanker.tank_plate_number,
-                    "status": tanker.status,
-                    "is_available": tanker.is_available,
-                    "current_request_id": tanker.current_request_id,
-                },
-                "job": {
-                    "id": request.id,
-                    "user_id": request.user_id,
-                    "liquid_id": request.liquid_id,
-                    "volume_liters": request.volume_liters,
-                    "latitude": request.latitude,
-                    "longitude": request.longitude,
-                    "delivery_type": request.delivery_type,
-                    "is_asap": request.is_asap,
-                    "scheduled_for": request.scheduled_for,
-                    "status": request.status,
-                },
-                "members": [],
-            }
-
-    # Active batch job
-    batch = (
-        db.query(Batch)
-        .filter(
-            Batch.tanker_id == tanker.id,
-            Batch.status.in_(["assigned", "loading", "delivering", "arrived"]),
-        )
-        .first()
-    )
-
-    if batch:
-        members = db.query(BatchMember).filter(BatchMember.batch_id == batch.id).all()
-
-        return {
-            "job_type": "batch",
-            "tanker": {
-                "id": tanker.id,
-                "driver_name": tanker.driver_name,
-                "phone": tanker.phone,
-                "tank_plate_number": tanker.tank_plate_number,
-                "status": tanker.status,
-                "is_available": tanker.is_available,
-                "current_request_id": tanker.current_request_id,
-            },
-            "job": {
-                "id": batch.id,
-                "user_id": batch.user_id,
-                "liquid_id": batch.liquid_id,
-                "current_volume": batch.current_volume,
-                "target_volume": batch.target_volume,
-                "volume_liters": batch.volume_liters,
-                "latitude": batch.latitude,
-                "longitude": batch.longitude,
-                "status": batch.status,
-                "base_price": batch.base_price,
-                "tanker_id": batch.tanker_id,
-                "loading_deadline": batch.loading_deadline,
-                "delivering_started_at": batch.delivering_started_at,
-                "completed_at": batch.completed_at,
-            },
-            "members": [
-                {
-                    "id": member.id,
-                    "batch_id": member.batch_id,
-                    "request_id": member.request_id,
-                    "user_id": member.user_id,
-                    "volume_liters": member.volume_liters,
-                    "requested_volume": member.requested_volume,
-                    "status": member.status,
-                    "payment_status": member.payment_status,
-                    "joined_at": member.joined_at,
-                    "payment_deadline": member.payment_deadline,
-                    "latitude": member.latitude,
-                    "longitude": member.longitude,
-                    "delivered_at": member.delivered_at,
-                    "customer_confirmed": member.customer_confirmed,
-                    "customer_confirmed_at": member.customer_confirmed_at,
-                    "delivery_code": member.delivery_code,
-                }
-                for member in members
-            ],
-        }
-
-    return {
-        "job_type": None,
-        "tanker": {
-            "id": tanker.id,
-            "driver_name": tanker.driver_name,
-            "phone": tanker.phone,
-            "tank_plate_number": tanker.tank_plate_number,
-            "status": tanker.status,
-            "is_available": tanker.is_available,
-            "current_request_id": tanker.current_request_id,
-        },
-        "job": None,
-        "members": [],
-    }
 
 
 @router.post("/{tanker_id}/accept/{batch_id}")

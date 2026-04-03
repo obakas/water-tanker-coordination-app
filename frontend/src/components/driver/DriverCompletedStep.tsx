@@ -42,7 +42,7 @@ export const DriverCompletedStep = ({
         <div className="space-y-2 text-sm">
           <div className="flex justify-between">
             <span className="text-muted-foreground">Job</span>
-            <span className="font-medium text-foreground">#{job.batchId}</span>
+            <span className="font-medium text-foreground">#{job.jobId}</span>
           </div>
 
           <div className="flex justify-between">

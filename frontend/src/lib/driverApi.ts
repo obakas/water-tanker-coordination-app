@@ -1,5 +1,3 @@
-// import { UserResponse } from "./api";
-
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/+$/, "") || "http://127.0.0.1:8000";
 
@@ -26,9 +24,9 @@ async function apiRequest<T>(
   if (!response.ok) {
     const message =
       typeof payload === "object" &&
-        payload !== null &&
-        "detail" in payload &&
-        typeof (payload as { detail?: unknown }).detail === "string"
+      payload !== null &&
+      "detail" in payload &&
+      typeof (payload as { detail?: unknown }).detail === "string"
         ? (payload as { detail: string }).detail
         : `Request failed: ${response.status}`;
 
@@ -43,7 +41,6 @@ async function apiRequest<T>(
 ========================= */
 
 export type DriverJobType = "batch" | "priority";
-
 
 export type DeliveryStatus =
   | "pending"
@@ -74,7 +71,13 @@ export interface DriverUserResponse {
   id: number;
   name: string;
   phone: string;
-  tank_plate_number: string;
+  tankerId: number;
+  tank_plate_number?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  status?: string;
+  is_available?: boolean;
+  is_online?: boolean;
 }
 
 export interface DriverCurrentJobResponse {
@@ -188,26 +191,32 @@ export interface DriverActionResponse {
 }
 
 /* =========================
-   JOB-LEVEL ENDPOINTS
+   OFFER TYPES
 ========================= */
 
-// export interface DriverResponse {
-//   tankerId: number;
-//   name: string;
-//   phone: string;
-//   address: string;
-// }
+export interface IncomingDriverOffer {
+  type: "priority" | "batch";
+  id: number;
+  expires_in_seconds: number;
+  request_id?: number;
+  batch_id?: number;
+  volume_liters?: number;
+  total_volume?: number;
+  member_count?: number;
+  latitude?: number | null;
+  longitude?: number | null;
+  delivery_type?: string;
+  scheduled_for?: string | null;
+}
 
-// export interface loginDriverPayload {
-//   phone: string;
-// }
+export interface IncomingOfferResponse {
+  has_offer: boolean;
+  offer: IncomingDriverOffer | null;
+}
 
-// export function loginDriver(payload: loginDriverPayload) {
-//   return apiRequest<DriverResponse>("/auth/driver-login", {
-//     method: "POST",
-//     body: JSON.stringify(payload),
-//   });
-// }
+/* =========================
+   AUTH
+========================= */
 
 export async function loginDriver(phone: string) {
   return apiRequest<DriverUserResponse>("/auth/driver-login", {
@@ -219,7 +228,10 @@ export async function loginDriver(phone: string) {
 export async function signupDriver(
   name: string,
   phone: string,
-  tank_plate_number: string
+  tank_plate_number: string,
+  latitude?: number | null,
+  longitude?: number | null,
+  // tankerId?: number
 ) {
   return apiRequest<DriverUserResponse>("/auth/driver-signup", {
     method: "POST",
@@ -227,9 +239,56 @@ export async function signupDriver(
       name,
       phone,
       tank_plate_number,
+      latitude,
+      longitude,
+      // tankerId,
     }),
   });
 }
+
+export async function logoutDriver(tankerId: number) {
+  return apiRequest(`/auth/driver-logout/${tankerId}`, {
+    method: "POST",
+  });
+}
+
+/* =========================
+   OFFER ENDPOINTS
+========================= */
+
+export async function fetchIncomingOffer(
+  tankerId: number
+): Promise<IncomingOfferResponse> {
+  return apiRequest<IncomingOfferResponse>(
+    `/tankers/${tankerId}/incoming-offer`
+  );
+}
+
+export async function acceptIncomingOffer(
+  tankerId: number
+): Promise<DriverActionResponse> {
+  return apiRequest<DriverActionResponse>(
+    `/tankers/${tankerId}/offers/accept`,
+    {
+      method: "POST",
+    }
+  );
+}
+
+export async function rejectIncomingOffer(
+  tankerId: number
+): Promise<DriverActionResponse> {
+  return apiRequest<DriverActionResponse>(
+    `/tankers/${tankerId}/offers/reject`,
+    {
+      method: "POST",
+    }
+  );
+}
+
+/* =========================
+   JOB-LEVEL ENDPOINTS
+========================= */
 
 export async function fetchCurrentDriverJob(
   tankerId: number

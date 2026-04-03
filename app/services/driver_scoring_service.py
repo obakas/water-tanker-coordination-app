@@ -53,10 +53,13 @@ def get_or_create_metric(db: Session, tanker_id: int) -> DriverMetric:
 
 
 def score_proximity(tanker, job_lat: float, job_lon: float, max_radius_km: float = 15.0) -> float:
-    if tanker.latitude is None or tanker.longitude is None:
+    tanker_lat = getattr(tanker, "latitude", None)
+    tanker_lon = getattr(tanker, "longitude", None)
+
+    if tanker_lat is None or tanker_lon is None:
         return 0.2
 
-    distance = haversine_km(tanker.latitude, tanker.longitude, job_lat, job_lon)
+    distance = haversine_km(tanker_lat, tanker_lon, job_lat, job_lon)
     return clamp(1 - (distance / max_radius_km))
 
 
@@ -229,24 +232,64 @@ def score_driver_for_batch(db: Session, tanker, batch, members: list) -> dict:
         "final_score": round(final_score, 4),
     }
 
-def calculate_batch_efficiency_score(db: Session, tanker_id: int) -> float:
-    """
-    V1:
-    Since you may not yet track batch-only completion stats separately,
-    reuse general completion behavior as a proxy.
-    """
-    metric = DriverMetric(db, tanker_id)
-
+def calculate_batch_efficiency_score(metric: DriverMetric) -> float:
     accepts_total = max(metric.accepts_total or 0, 0)
     completed_total = max(metric.completed_total or 0, 0)
     avg_response_seconds = float(metric.avg_response_seconds or 0.0)
 
     completion_rate = completed_total / accepts_total if accepts_total > 0 else 0.5
-
-    # response bonus: drivers who react reasonably well tend to perform better operationally
-    target_response_seconds = 20.0
-    responsiveness = 1 - min(avg_response_seconds / target_response_seconds, 1.0) if avg_response_seconds > 0 else 0.5
+    responsiveness = (
+        1 - min(avg_response_seconds / 20.0, 1.0)
+        if avg_response_seconds > 0
+        else 0.5
+    )
 
     efficiency = (0.7 * completion_rate) + (0.3 * responsiveness)
     return clamp(efficiency)
+
+
+def score_driver_for_batch(db: Session, tanker, batch, members: list) -> dict:
+    metric = get_or_create_metric(db, tanker.id)
+
+    if tanker.latitude is None or tanker.longitude is None or batch.latitude is None or batch.longitude is None:
+        proximity = 0.2
+    else:
+        proximity = score_proximity(
+            tanker,
+            job_lat=batch.latitude,
+            job_lon=batch.longitude,
+            max_radius_km=15.0,
+        )
+
+    reliability = score_reliability(metric)
+    batch_efficiency = calculate_batch_efficiency_score(metric)
+    fairness = score_fairness(metric)
+
+    zone_key = build_zone_key(batch.latitude or 0, batch.longitude or 0)
+    area_affinity = score_area_affinity(db, tanker.id, zone_key)
+
+    availability_confidence = compute_availability_confidence(metric)
+    penalties = compute_penalty(metric, area_affinity)
+
+    final_score = (
+        0.30 * proximity
+        + 0.25 * reliability
+        + 0.20 * batch_efficiency
+        + 0.15 * fairness
+        + 0.10 * area_affinity
+        - penalties
+    )
+
+    final_score = max(0.0, min(final_score, 1.0)) * availability_confidence
+
+    return {
+        "proximity": round(proximity, 4),
+        "reliability": round(reliability, 4),
+        "batch_efficiency": round(batch_efficiency, 4),
+        "fairness": round(fairness, 4),
+        "area_affinity": round(area_affinity, 4),
+        "availability_confidence": round(availability_confidence, 4),
+        "penalties": round(penalties, 4),
+        "final_score": round(final_score, 4),
+    }
    

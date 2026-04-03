@@ -16,11 +16,13 @@ class DriverSignupPayload(BaseModel):
     name: str
     phone: str
     tank_plate_number: str
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 @router.post("/login")
 def login(payload: LoginPayload, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.phone == payload.phone).first()
+    user = db.query(User).filter(User.phone == payload.phone.strip()).first()
 
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -38,15 +40,27 @@ def driver_login(payload: LoginPayload, db: Session = Depends(get_db)):
     phone = payload.phone.strip()
 
     tanker = db.query(Tanker).filter(Tanker.phone == phone).first()
-
     if not tanker:
         raise HTTPException(status_code=404, detail="Driver not found")
+
+    tanker.is_online = True
+
+    # If driver has no active job, ensure they are assignable
+    if not tanker.current_request_id and tanker.status in {"available", "completed"}:
+        tanker.status = "available"
+        tanker.is_available = True
+
+    db.commit()
+    db.refresh(tanker)
 
     return {
         "id": tanker.id,
         "name": tanker.driver_name,
         "phone": tanker.phone,
         "tankerId": tanker.id,
+        "status": tanker.status,
+        "is_available": tanker.is_available,
+        "is_online": tanker.is_online,
     }
 
 
@@ -67,8 +81,11 @@ def driver_signup(payload: DriverSignupPayload, db: Session = Depends(get_db)):
         driver_name=payload.name.strip(),
         phone=phone,
         tank_plate_number=plate,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
         status="available",
         is_available=True,
+        is_online=True,
         current_request_id=None,
     )
 
@@ -81,4 +98,30 @@ def driver_signup(payload: DriverSignupPayload, db: Session = Depends(get_db)):
         "name": tanker.driver_name,
         "phone": tanker.phone,
         "tankerId": tanker.id,
+        "status": tanker.status,
+        "is_available": tanker.is_available,
+        "is_online": tanker.is_online,
+    }
+
+
+@router.post("/driver-logout/{tanker_id}")
+def driver_logout(tanker_id: int, db: Session = Depends(get_db)):
+    tanker = db.query(Tanker).filter(Tanker.id == tanker_id).first()
+    if not tanker:
+        raise HTTPException(status_code=404, detail="Driver not found")
+
+    tanker.is_online = False
+
+    # Only restore availability if there is no active job
+    if not tanker.current_request_id and tanker.status in {"available", "completed"}:
+        tanker.status = "available"
+        tanker.is_available = True
+
+    db.commit()
+    db.refresh(tanker)
+
+    return {
+        "message": "Driver logged out successfully",
+        "tankerId": tanker.id,
+        "is_online": tanker.is_online,
     }

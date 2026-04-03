@@ -17,6 +17,8 @@ class TankerBase(BaseModel):
     driver_name: str
     phone: Optional[str] = None
     tank_plate_number: str
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 class TankerCreate(TankerBase):
@@ -32,7 +34,8 @@ class TankerUpdate(BaseModel):
     phone: Optional[str] = None
     tank_plate_number: Optional[str] = None
     is_available: Optional[bool] = None
-
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 class TankerOut(TankerBase):
