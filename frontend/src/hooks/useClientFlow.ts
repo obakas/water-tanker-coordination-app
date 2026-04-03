@@ -10,6 +10,7 @@ import {
 import { useLiveBatch } from "@/hooks/useLiveBatch";
 import { createWaterRequest, type UserResponse } from "@/lib/api";
 import { leaveBatchMember } from "@/lib/batches";
+import { useLivePriorityRequest } from "@/hooks/useLivePriorityRequest";
 
 interface UseClientFlowParams {
   onBack: () => void;
@@ -68,6 +69,57 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     refresh: refreshLiveBatch,
   } = useLiveBatch(batchId, memberId, 8000);
 
+  const {
+    request: livePriorityRequest,
+    isLoading: livePriorityLoading,
+    error: livePriorityError,
+    refresh: refreshLivePriorityRequest,
+  } = useLivePriorityRequest(requestMode === "priority" ? requestId : null, 8000);
+
+
+
+
+
+  function resolvePriorityClientStep(
+    priorityRequest: ReturnType<typeof useLivePriorityRequest>["request"],
+    fallbackStep: ClientStep
+  ): ClientStep {
+    if (!priorityRequest) return fallbackStep;
+
+    const deliveryStatus = priorityRequest.delivery_status;
+    const tankerStatus = priorityRequest.tanker_status;
+    const requestStatus = priorityRequest.request_status;
+
+    if (
+      deliveryStatus === "delivered" ||
+      requestStatus === "completed" ||
+      priorityRequest.customer_confirmed
+    ) {
+      return "completed";
+    }
+
+    if (
+      deliveryStatus === "arrived" ||
+      deliveryStatus === "measuring" ||
+      deliveryStatus === "awaiting_otp"
+    ) {
+      return "delivery";
+    }
+
+    if (
+      deliveryStatus === "pending" ||
+      deliveryStatus === "en_route" ||
+      tankerStatus === "assigned" ||
+      tankerStatus === "loading" ||
+      tankerStatus === "delivering" ||
+      tankerStatus === "arrived"
+    ) {
+      return "tanker";
+    }
+
+    return fallbackStep;
+  }
+
   function resolveClientStep(
     batch: typeof liveBatch,
     fallbackStep: ClientStep
@@ -99,10 +151,20 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     return fallbackStep;
   }
 
-  const resolvedStep = useMemo(
-    () => resolveClientStep(liveBatch, step),
-    [liveBatch, step]
-  );
+  // const resolvedStep = useMemo(
+  //   () => resolveClientStep(liveBatch, step),
+  //   [liveBatch, step]
+  // );
+
+  const resolvedStep = useMemo(() => {
+    if (requestMode === "batch") {
+      return resolveClientStep(liveBatch, step);
+    }
+
+    return resolvePriorityClientStep(livePriorityRequest, step);
+  }, [requestMode, liveBatch, livePriorityRequest, step]);
+
+
 
   const price = useMemo(() => {
     if (requestMode === "priority") {
@@ -174,6 +236,12 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
       setOtp(liveBatch.otp);
     }
   }, [liveBatch?.otp]);
+
+  useEffect(() => {
+    if (livePriorityRequest?.otp) {
+      setOtp(livePriorityRequest.otp);
+    }
+  }, [livePriorityRequest?.otp]);
 
   useEffect(() => {
     const session: ClientSession = {
@@ -434,18 +502,18 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     resolvedStep === "request"
       ? "Request Water"
       : resolvedStep === "payment"
-      ? "Confirm Payment"
-      : resolvedStep === "batch"
-      ? "Your Batch"
-      : resolvedStep === "tanker"
-      ? requestMode === "priority"
-        ? "Priority Delivery"
-        : "Tanker Assigned"
-      : resolvedStep === "delivery"
-      ? "Delivery"
-      : resolvedStep === "expired"
-      ? "Batch Expired"
-      : "Completed";
+        ? "Confirm Payment"
+        : resolvedStep === "batch"
+          ? "Your Batch"
+          : resolvedStep === "tanker"
+            ? requestMode === "priority"
+              ? "Priority Delivery"
+              : "Tanker Assigned"
+            : resolvedStep === "delivery"
+              ? "Delivery"
+              : resolvedStep === "expired"
+                ? "Batch Expired"
+                : "Completed";
 
   const handleDeliveryConfirmed = () => {
     toast.success("Delivery confirmed! Thank you.");
@@ -531,5 +599,10 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     liveBatchLoading,
     liveBatchError,
     refreshLiveBatch,
+
+    livePriorityRequest,
+    livePriorityLoading,
+    livePriorityError,
+    refreshLivePriorityRequest,
   };
 };

@@ -1,166 +1,442 @@
-import { Truck, CheckCircle2 } from "lucide-react";
+import {
+  Loader2,
+  Truck,
+  Phone,
+  MapPin,
+  Clock3,
+  CheckCircle2,
+  AlertCircle,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { RequestMode } from "@/types/client";
-import { formatScheduledDateTime } from "@/lib/utils";
+import type { BatchLiveResponse } from "@/lib/batches";
+import type { PriorityLiveResponse } from "@/lib/requests";
 
 interface TankerStepProps {
-  requestMode: RequestMode;
-  priorityMode?: "asap" | "scheduled";
-  scheduledFor?: string;
+  requestMode: "batch" | "priority";
+  priorityMode: "asap" | "scheduled";
+  scheduledFor: string;
   selectedSize: number;
   onArrived: () => void;
+
+  liveBatch?: BatchLiveResponse | null;
+  liveBatchLoading?: boolean;
+  liveBatchError?: string | null;
+
+  livePriorityRequest?: PriorityLiveResponse | null;
+  livePriorityLoading?: boolean;
+  livePriorityError?: string | null;
+  refreshLivePriorityRequest?: () => Promise<void> | void;
 }
 
-const TankerStep = ({
-    requestMode,
-    priorityMode,
-    scheduledFor,
-    selectedSize,
-    onArrived,
-}: TankerStepProps) => {
-    const batchSteps = [
-        { label: "Tanker accepted batch", done: true },
-        { label: "Loading water", done: true },
-        { label: "Water loaded — en route", done: true },
-        { label: "Delivering to members", done: false, active: true },
-    ];
+function formatDateTime(value?: string | null) {
+  if (!value) return "—";
 
-    const prioritySteps = [
-        { label: "Priority request accepted", done: true },
-        { label: "Scheduling your delivery", done: true },
-        { label: "Tanker loaded and en route", done: false, active: true },
-    ];
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
 
-    const steps = requestMode === "batch" ? batchSteps : prioritySteps;
+  return date.toLocaleString();
+}
 
-    return (
-        <div className="space-y-6">
-            <div className="bg-card rounded-xl border border-border p-6">
-                <div className="flex items-center gap-4 mb-5">
-                    <div className="w-14 h-14 rounded-2xl bg-success/10 flex items-center justify-center">
-                        <Truck className="h-7 w-7 text-success" />
-                    </div>
-                    <div>
-                        <h3 className="font-bold text-foreground text-lg">
-                            {requestMode === "priority"
-                                ? "Priority Delivery Scheduled"
-                                : "Tanker Assigned"}
-                        </h3>
-                        <p className="text-sm text-muted-foreground">Toyota Dyna • ABC-123-XY</p>
-                    </div>
-                </div>
+function getBatchTankerState(batch?: BatchLiveResponse | null) {
+  if (!batch) {
+    return {
+      headline: "Waiting for tanker assignment",
+      subtext: "We are still matching your batch with the best available tanker.",
+      tankerId: null,
+      driverName: null,
+      driverPhone: null,
+      tankerStatus: null,
+      deliveryStatus: null,
+      arrived: false,
+    };
+  }
 
-                {requestMode === "priority" && formatScheduledDateTime(scheduledFor) && (
-                    <div className="mb-5 rounded-xl bg-warning/5 border border-warning/20 p-4">
-                        <p className="text-sm text-muted-foreground">Preferred delivery period</p>
-                        <p className="font-semibold text-foreground mt-1">{formatScheduledDateTime(scheduledFor)}</p>
-                    </div>
-                )}
+  if (batch.status === "assigned") {
+    return {
+      headline: "Tanker assigned",
+      subtext: "A tanker has been assigned to your batch.",
+      tankerId: batch.tanker_id ?? null,
+      driverName: batch.driver_name ?? null,
+      driverPhone: null,
+      tankerStatus: "assigned",
+      deliveryStatus: null,
+      arrived: false,
+    };
+  }
 
-                <div className="space-y-4">
-                    {steps.map((s, i) => (
-                        <div key={i} className="flex items-center gap-3">
-                            <div
-                                className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${s.done
-                                        ? "bg-success"
-                                        : s.active
-                                            ? requestMode === "priority"
-                                                ? "bg-warning animate-pulse"
-                                                : "bg-primary animate-pulse"
-                                            : "bg-secondary"
-                                    }`}
-                            >
-                                {s.done ? (
-                                    <CheckCircle2 className="h-4 w-4 text-success-foreground" />
-                                ) : (
-                                    <span
-                                        className={`text-xs font-bold ${s.active ? "text-primary-foreground" : "text-muted-foreground"
-                                            }`}
-                                    >
-                                        {i + 1}
-                                    </span>
-                                )}
-                            </div>
+  if (batch.status === "loading") {
+    return {
+      headline: "Tanker loading",
+      subtext: "The tanker is currently loading water for delivery.",
+      tankerId: batch.tanker_id ?? null,
+      driverName: batch.driver_name ?? null,
+      driverPhone: null,
+      tankerStatus: "loading",
+      deliveryStatus: null,
+      arrived: false,
+    };
+  }
 
-                            <span
-                                className={`text-sm ${s.done
-                                        ? "text-foreground"
-                                        : s.active
-                                            ? requestMode === "priority"
-                                                ? "text-warning font-semibold"
-                                                : "text-primary font-semibold"
-                                            : "text-muted-foreground"
-                                    }`}
-                            >
-                                {s.label}
-                            </span>
-                        </div>
-                    ))}
-                </div>
+  if (batch.status === "delivering") {
+    return {
+      headline: "Tanker en route",
+      subtext: "Your delivery is on the way.",
+      tankerId: batch.tanker_id ?? null,
+      driverName: batch.driver_name ?? null,
+      driverPhone: null,
+      tankerStatus: "delivering",
+      deliveryStatus: "en_route",
+      arrived: false,
+    };
+  }
+
+  if (batch.status === "arrived") {
+    return {
+      headline: "Tanker arrived",
+      subtext: "The tanker has arrived. You can continue to delivery confirmation.",
+      tankerId: batch.tanker_id ?? null,
+      driverName: batch.driver_name ?? null,
+      driverPhone: null,
+      tankerStatus: "arrived",
+      deliveryStatus: "arrived",
+      arrived: true,
+    };
+  }
+
+  if (batch.status === "completed") {
+    return {
+      headline: "Delivery completed",
+      subtext: "This batch delivery has already been completed.",
+      tankerId: batch.tanker_id ?? null,
+      driverName: batch.driver_name ?? null,
+      driverPhone: null,
+      tankerStatus: "completed",
+      deliveryStatus: "delivered",
+      arrived: true,
+    };
+  }
+
+  return {
+    headline: "Waiting for tanker update",
+    subtext: "We are syncing the latest tanker status.",
+    tankerId: batch.tanker_id ?? null,
+    driverName: batch.driver_name ?? null,
+    driverPhone: null,
+    tankerStatus: batch.status ?? null,
+    deliveryStatus: null,
+    arrived: false,
+  };
+}
+
+function getPriorityTankerState(priority?: PriorityLiveResponse | null) {
+  if (!priority) {
+    return {
+      headline: "Preparing your priority delivery",
+      subtext: "We are waiting for tanker assignment.",
+      tankerId: null,
+      driverName: null,
+      driverPhone: null,
+      tankerStatus: null,
+      deliveryStatus: null,
+      arrived: false,
+    };
+  }
+
+  const deliveryStatus = priority.delivery_status;
+  const tankerStatus = priority.tanker_status;
+
+  if (
+    deliveryStatus === "arrived" ||
+    deliveryStatus === "measuring" ||
+    deliveryStatus === "awaiting_otp"
+  ) {
+    return {
+      headline: "Tanker arrived",
+      subtext: "Your tanker is at the delivery point.",
+      tankerId: priority.tanker_id,
+      driverName: priority.driver_name,
+      driverPhone: priority.tanker_phone,
+      tankerStatus,
+      deliveryStatus,
+      arrived: true,
+    };
+  }
+
+  if (deliveryStatus === "delivered") {
+    return {
+      headline: "Delivery completed",
+      subtext: "Your priority delivery has been completed.",
+      tankerId: priority.tanker_id,
+      driverName: priority.driver_name,
+      driverPhone: priority.tanker_phone,
+      tankerStatus,
+      deliveryStatus,
+      arrived: true,
+    };
+  }
+
+  if (deliveryStatus === "en_route" || tankerStatus === "delivering") {
+    return {
+      headline: "Tanker en route",
+      subtext: "Your priority delivery is on the way.",
+      tankerId: priority.tanker_id,
+      driverName: priority.driver_name,
+      driverPhone: priority.tanker_phone,
+      tankerStatus,
+      deliveryStatus,
+      arrived: false,
+    };
+  }
+
+  if (tankerStatus === "loading") {
+    return {
+      headline: "Tanker loading",
+      subtext: "The tanker is loading water for your priority request.",
+      tankerId: priority.tanker_id,
+      driverName: priority.driver_name,
+      driverPhone: priority.tanker_phone,
+      tankerStatus,
+      deliveryStatus,
+      arrived: false,
+    };
+  }
+
+  if (tankerStatus === "assigned" || priority.tanker_id) {
+    return {
+      headline: "Tanker assigned",
+      subtext: "A tanker has been assigned to your request.",
+      tankerId: priority.tanker_id,
+      driverName: priority.driver_name,
+      driverPhone: priority.tanker_phone,
+      tankerStatus,
+      deliveryStatus,
+      arrived: false,
+    };
+  }
+
+  return {
+    headline: "Waiting for tanker assignment",
+    subtext: "We are still matching your priority request to a tanker.",
+    tankerId: null,
+    driverName: null,
+    driverPhone: null,
+    tankerStatus,
+    deliveryStatus,
+    arrived: false,
+  };
+}
+
+export default function TankerStep({
+  requestMode,
+  priorityMode,
+  scheduledFor,
+  selectedSize,
+  onArrived,
+
+  liveBatch,
+  liveBatchLoading = false,
+  liveBatchError = null,
+
+  livePriorityRequest,
+  livePriorityLoading = false,
+  livePriorityError = null,
+  refreshLivePriorityRequest,
+}: TankerStepProps) {
+  const isPriority = requestMode === "priority";
+
+  const loading = isPriority ? livePriorityLoading : liveBatchLoading;
+  const error = isPriority ? livePriorityError : liveBatchError;
+
+  const state = isPriority
+    ? getPriorityTankerState(livePriorityRequest)
+    : getBatchTankerState(liveBatch);
+
+  const canContinue =
+    state.arrived ||
+    state.deliveryStatus === "measuring" ||
+    state.deliveryStatus === "awaiting_otp" ||
+    state.deliveryStatus === "delivered";
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-2xl border bg-card p-5 shadow-sm">
+        <div className="space-y-2">
+          <h2 className="text-xl font-bold text-foreground">{state.headline}</h2>
+          <p className="text-sm text-muted-foreground">{state.subtext}</p>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-xl border p-4">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">
+              Delivery Type
+            </p>
+            <p className="mt-1 font-semibold text-foreground">
+              {requestMode === "priority" ? "Priority Delivery" : "Batch Saver"}
+            </p>
+          </div>
+
+          <div className="rounded-xl border p-4">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">
+              Quantity
+            </p>
+            <p className="mt-1 font-semibold text-foreground">
+              {selectedSize.toLocaleString()}L
+            </p>
+          </div>
+
+          {requestMode === "priority" && (
+            <>
+              <div className="rounded-xl border p-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Priority Mode
+                </p>
+                <p className="mt-1 font-semibold text-foreground">
+                  {priorityMode === "asap" ? "ASAP" : "Scheduled"}
+                </p>
+              </div>
+
+              <div className="rounded-xl border p-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Scheduled For
+                </p>
+                <p className="mt-1 font-semibold text-foreground">
+                  {priorityMode === "scheduled"
+                    ? formatDateTime(scheduledFor)
+                    : "Immediate dispatch"}
+                </p>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border bg-card p-5 shadow-sm">
+        <div className="flex items-start gap-3">
+          <Truck className="mt-0.5 h-5 w-5 text-primary" />
+          <div className="min-w-0 flex-1">
+            <p className="font-medium text-foreground">Tanker Details</p>
+
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border p-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Tanker ID
+                </p>
+                <p className="mt-1 font-semibold text-foreground">
+                  {state.tankerId ? `#${state.tankerId}` : "Not assigned yet"}
+                </p>
+              </div>
+
+              <div className="rounded-xl border p-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Tanker Status
+                </p>
+                <p className="mt-1 font-semibold text-foreground">
+                  {state.tankerStatus ?? "Waiting"}
+                </p>
+              </div>
+
+              <div className="rounded-xl border p-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Driver Name
+                </p>
+                <p className="mt-1 font-semibold text-foreground">
+                  {state.driverName ?? "Pending assignment"}
+                </p>
+              </div>
+
+              <div className="rounded-xl border p-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Delivery Status
+                </p>
+                <p className="mt-1 font-semibold text-foreground">
+                  {state.deliveryStatus ?? "Preparing"}
+                </p>
+              </div>
             </div>
 
-            {requestMode === "batch" && (
-                <div className="bg-card rounded-xl border border-border p-5">
-                    <h3 className="font-semibold text-foreground mb-3">Delivery Queue</h3>
-                    <div className="space-y-3">
-                        {[
-                            { name: "Adewale O.", liters: 2000, status: "Delivered" },
-                            { name: "Chioma N.", liters: 1500, status: "Delivering" },
-                            { name: "You", liters: selectedSize ?? 0, status: "Next" },
-                            { name: "Fatima B.", liters: 2000, status: "Waiting" },
-                        ].map((m, i) => (
-                            <div key={i} className="flex items-center justify-between text-sm">
-                                <div className="flex items-center gap-2">
-                                    <div
-                                        className={`w-2 h-2 rounded-full ${m.status === "Delivered"
-                                                ? "bg-success"
-                                                : m.status === "Delivering"
-                                                    ? "bg-warning"
-                                                    : m.status === "Next"
-                                                        ? "bg-primary"
-                                                        : "bg-muted-foreground/30"
-                                            }`}
-                                    />
-                                    <span
-                                        className={`${m.name === "You" ? "font-bold text-primary" : "text-foreground"
-                                            }`}
-                                    >
-                                        {m.name}
-                                    </span>
-                                </div>
-
-                                <div className="flex items-center gap-3">
-                                    <span className="text-muted-foreground">
-                                        {m.liters.toLocaleString()}L
-                                    </span>
-                                    <span
-                                        className={`text-xs font-medium px-2 py-0.5 rounded-full ${m.status === "Delivered"
-                                                ? "bg-success/10 text-success"
-                                                : m.status === "Delivering"
-                                                    ? "bg-warning/10 text-warning"
-                                                    : m.status === "Next"
-                                                        ? "bg-primary/10 text-primary"
-                                                        : "bg-secondary text-muted-foreground"
-                                            }`}
-                                    >
-                                        {m.status}
-                                    </span>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
+            {state.driverPhone && (
+              <div className="mt-4 rounded-xl border bg-muted/30 p-4">
+                <div className="flex items-center gap-3">
+                  <Phone className="h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Driver Contact</p>
+                    <p className="text-sm text-muted-foreground">{state.driverPhone}</p>
+                  </div>
                 </div>
+              </div>
             )}
-
-            <Button
-                variant="hero"
-                className="w-full h-14 rounded-xl text-base"
-                onClick={onArrived}
-            >
-                {requestMode === "priority" ? "Driver Is Arriving" : "Tanker Is Here"}
-            </Button>
+          </div>
         </div>
-    );
-};
+      </div>
 
-export default TankerStep;
+      <div className="rounded-2xl border bg-card p-5 shadow-sm">
+        <div className="flex items-start gap-3">
+          {loading ? (
+            <Loader2 className="mt-0.5 h-5 w-5 animate-spin text-muted-foreground" />
+          ) : canContinue ? (
+            <CheckCircle2 className="mt-0.5 h-5 w-5 text-primary" />
+          ) : (
+            <Clock3 className="mt-0.5 h-5 w-5 text-muted-foreground" />
+          )}
+
+          <div>
+            <p className="font-medium text-foreground">Live Status</p>
+            <p className="text-sm text-muted-foreground">
+              {loading
+                ? "Refreshing tanker status..."
+                : canContinue
+                ? "The tanker has reached the stage where you can continue to delivery."
+                : "We are still waiting for the next live update."}
+            </p>
+          </div>
+        </div>
+
+        {state.arrived && (
+          <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-4">
+            <div className="flex items-start gap-3">
+              <MapPin className="mt-0.5 h-5 w-5 text-primary" />
+              <div>
+                <p className="font-medium text-foreground">Tanker has arrived</p>
+                <p className="text-sm text-muted-foreground">
+                  You can now continue to the delivery step.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div className="mt-4 rounded-xl border border-destructive/20 bg-destructive/5 p-4">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="mt-0.5 h-5 w-5 text-destructive" />
+              <div>
+                <p className="font-medium text-destructive">
+                  Could not refresh tanker status
+                </p>
+                <p className="text-sm text-muted-foreground">{error}</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        <Button type="button" className="w-full" onClick={onArrived} disabled={!canContinue}>
+          Continue to Delivery
+        </Button>
+
+        {isPriority && refreshLivePriorityRequest && (
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={() => Promise.resolve(refreshLivePriorityRequest())}
+            disabled={loading}
+          >
+            Refresh Status
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}

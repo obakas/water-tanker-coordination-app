@@ -63,6 +63,11 @@ const ClientView = ({ onBack }: ClientViewProps) => {
     liveBatchLoading,
     liveBatchError,
     refreshLiveBatch,
+
+    livePriorityRequest,
+    livePriorityLoading,
+    livePriorityError,
+    refreshLivePriorityRequest,
   } = useClientFlow({ onBack });
 
   return (
@@ -72,9 +77,8 @@ const ClientView = ({ onBack }: ClientViewProps) => {
           <div className="flex items-center gap-3">
             <button
               onClick={handleBackClick}
-              className={`text-foreground ${
-                step === "batch" ? "text-red-500" : ""
-              }`}
+              className={`text-foreground ${step === "batch" ? "text-red-500" : ""
+                }`}
               aria-label="Go back"
             >
               <ArrowLeft className="h-5 w-5" />
@@ -185,6 +189,13 @@ const ClientView = ({ onBack }: ClientViewProps) => {
             scheduledFor={scheduledFor}
             selectedSize={selectedSize ?? 0}
             onArrived={() => setStep("delivery")}
+            liveBatch={liveBatch}
+            liveBatchLoading={liveBatchLoading}
+            liveBatchError={liveBatchError}
+            livePriorityRequest={livePriorityRequest}
+            livePriorityLoading={livePriorityLoading}
+            livePriorityError={livePriorityError}
+            refreshLivePriorityRequest={refreshLivePriorityRequest}
           />
         )}
 
@@ -193,6 +204,10 @@ const ClientView = ({ onBack }: ClientViewProps) => {
             requestMode={requestMode}
             otp={otp}
             onConfirm={handleDeliveryConfirmed}
+            onCopyOtp={copyOtp}
+            livePriorityRequest={livePriorityRequest}
+            livePriorityLoading={livePriorityLoading}
+            livePriorityError={livePriorityError}
           />
         )}
 

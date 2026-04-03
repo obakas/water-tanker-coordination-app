@@ -17,6 +17,81 @@ from app.services.request_service import (
     create_priority_request_record,
     get_request_by_id,
 )
+from app.models.DeliveryRecord import DeliveryRecord
+from app.models.tanker import Tanker
+
+
+
+
+
+
+
+def get_priority_request_live_flow(db: Session, request_id: int) -> dict[str, Any]:
+    request = get_request_by_id(db, request_id)
+
+    if request.delivery_type != "priority":
+        raise HTTPException(status_code=400, detail="Request is not a priority request")
+
+    # tanker = (
+    #     db.query(Tanker)
+    #     .filter(Tanker.current_request_id == request.id)
+    #     .first()
+    # )
+
+    delivery = (
+        db.query(DeliveryRecord)
+        .filter(
+            DeliveryRecord.request_id == request.id,
+            DeliveryRecord.job_type == "priority",
+        )
+        .order_by(DeliveryRecord.id.desc())
+        .first()
+    )
+
+    tanker = None
+    if delivery and delivery.tanker_id:
+        tanker = db.query(Tanker).filter(Tanker.id == delivery.tanker_id).first()
+
+    if not tanker:
+        tanker = (
+            db.query(Tanker)
+            .filter(Tanker.current_request_id == request.id)
+            .first()
+        )
+
+    return {
+        "request_id": request.id,
+        "delivery_type": request.delivery_type,
+        "request_status": request.status,
+        "is_asap": request.is_asap,
+        "scheduled_for": request.scheduled_for.isoformat() if request.scheduled_for else None,
+
+        "tanker_id": tanker.id if tanker else None,
+        "driver_name": tanker.driver_name if tanker else None,
+        "tanker_phone": tanker.phone if tanker else None,
+        "tanker_status": tanker.status if tanker else None,
+
+        "delivery_id": delivery.id if delivery else None,
+        "delivery_status": delivery.delivery_status if delivery else None,
+        "otp": delivery.delivery_code if delivery else None,
+        "otp_verified": delivery.otp_verified if delivery else False,
+        "otp_required": delivery.otp_required if delivery else True,
+
+        "planned_liters": delivery.planned_liters if delivery else float(request.volume_liters),
+        "actual_liters_delivered": delivery.actual_liters_delivered if delivery else None,
+
+        "meter_start_reading": delivery.meter_start_reading if delivery else None,
+        "meter_end_reading": delivery.meter_end_reading if delivery else None,
+
+        "arrived_at": delivery.arrived_at.isoformat() if delivery and delivery.arrived_at else None,
+        "measurement_started_at": delivery.measurement_started_at.isoformat() if delivery and delivery.measurement_started_at else None,
+        "measurement_completed_at": delivery.measurement_completed_at.isoformat() if delivery and delivery.measurement_completed_at else None,
+        "delivered_at": delivery.delivered_at.isoformat() if delivery and delivery.delivered_at else None,
+
+        "customer_confirmed": delivery.customer_confirmed if delivery else False,
+        "failure_reason": delivery.failure_reason if delivery else None,
+        "notes": delivery.notes if delivery else None,
+    }
 
 
 def create_client_request_flow(db: Session, data: RequestCreate) -> dict[str, Any]:
