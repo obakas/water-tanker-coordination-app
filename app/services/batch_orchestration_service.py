@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.models.batch import Batch
 from app.models.batch_member import BatchMember
+from app.schemas import batch
 from app.services.batch_scoring_service import (
     calculate_batch_health_score,
     get_batch_dispatch_priority,
@@ -97,13 +98,25 @@ def refresh_batch_state(db: Session, batch_id: int) -> dict[str, Any]:
     db.commit()
     db.refresh(batch)
 
-    return {
-        "batch_id": batch.id,
-        "status": batch.status,
-        "current_volume": batch.current_volume,
-        "target_volume": batch.target_volume,
-        "health": health,
-    }
+    # 🔥 AUTO-ASSIGNMENT TRIGGER (THIS WAS MISSING)
+
+    should_attempt_assignment = batch.status in {"near_ready", "ready_for_assignment"}
+
+    fill_ratio = 0
+    if batch.target_volume and batch.target_volume > 0:
+        fill_ratio = batch.current_volume / batch.target_volume
+
+    if should_attempt_assignment and fill_ratio >= 0.9 and not getattr(batch, "tanker_id", None):
+        assignment_result = assign_tanker_if_ready(db, batch.id, allow_near_ready=True)
+
+        return {
+            "batch_id": batch.id,
+            "status": batch.status,
+            "current_volume": batch.current_volume,
+            "target_volume": batch.target_volume,
+            "health": health,
+            "assignment": assignment_result,
+        }
 
 
 def handle_batch_member_join(
@@ -121,10 +134,6 @@ def handle_batch_payment_confirmed(
     batch_id: int,
     member_id: int,
 ) -> dict[str, Any]:
-    """
-    Call this after payment_service has already marked the member as paid/active.
-    This function only refreshes lifecycle state and triggers assignment if needed.
-    """
     member = (
         db.query(BatchMember)
         .filter(
@@ -144,20 +153,33 @@ def handle_batch_payment_confirmed(
     snapshot = refresh_batch_state(db, batch_id)
     db.refresh(batch)
 
-    if snapshot["status"] == "ready_for_assignment" and not getattr(batch, "tanker_id", None):
-        assignment_result = assign_tanker_if_ready(db, batch_id)
+    should_attempt_assignment = snapshot["status"] in {"near_ready", "ready_for_assignment"}
+    fill_ratio = 0
+    if batch.target_volume and batch.target_volume > 0:
+        fill_ratio = batch.current_volume / batch.target_volume
+
+    if should_attempt_assignment and fill_ratio >= 0.9 and not getattr(batch, "tanker_id", None):
+        assignment_result = assign_tanker_if_ready(db, batch_id, allow_near_ready=True)
         snapshot["assignment"] = assignment_result
 
     return snapshot
 
 
-def assign_tanker_if_ready(db: Session, batch_id: int) -> dict[str, Any]:
+def assign_tanker_if_ready(db: Session, batch_id: int, allow_near_ready: bool = False) -> dict[str, Any]:
     batch = get_batch_by_id(db, batch_id)
     if not batch:
         raise ValueError(f"Batch {batch_id} not found")
 
     members = get_batch_members(db, batch_id)
-    if not is_batch_ready_for_assignment(batch, members):
+
+    fill_ratio = 0
+    if batch.target_volume and batch.target_volume > 0:
+        fill_ratio = batch.current_volume / batch.target_volume
+
+    ready = is_batch_ready_for_assignment(batch, members)
+    near_ready_enough = allow_near_ready and fill_ratio >= 0.9
+
+    if not ready and not near_ready_enough:
         return {
             "assigned": False,
             "reason": "Batch is not ready for assignment",

@@ -13,6 +13,7 @@ from app.models.DeliveryRecord import DeliveryRecord
 from app.models.request import LiquidRequest
 from app.models.tanker import Tanker
 from app.models.user import User
+from app.services.payout_service import trigger_driver_payout
 
 
 RESOLVED_DELIVERY_STATUSES = {"delivered", "failed", "skipped"}
@@ -798,6 +799,14 @@ def finalize_job_if_all_stops_resolved(
         batch.status = "completed"
         batch.completed_at = datetime.utcnow()
 
+        payout_result = trigger_driver_payout(
+            db,
+            tanker_id=tanker.id,
+            job_type="batch",
+            job_id=batch.id,
+            amount=60000.0,  # replace with real rule
+        )
+
         tanker.status = "available"
         tanker.is_available = True
         tanker.current_request_id = None
@@ -814,6 +823,7 @@ def finalize_job_if_all_stops_resolved(
             "batch_id": batch.id,
             "batch_status": batch.status,
             "tanker_status": tanker.status,
+            "payout": payout_result,
         }
 
     if delivery.job_type == "priority":
@@ -845,6 +855,14 @@ def finalize_job_if_all_stops_resolved(
 
         request.status = "completed"
 
+        payout_result = trigger_driver_payout(
+            db,
+            tanker_id=tanker.id,
+            job_type="priority",
+            job_id=request.id,
+            amount=55000.0,  # replace with real rule
+        )
+
         tanker.status = "available"
         tanker.is_available = True
         tanker.current_request_id = None
@@ -861,6 +879,7 @@ def finalize_job_if_all_stops_resolved(
             "request_id": request.id,
             "request_status": request.status,
             "tanker_status": tanker.status,
+            "payout": payout_result,
         }
 
     return None

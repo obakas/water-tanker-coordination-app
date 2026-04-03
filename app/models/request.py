@@ -18,3 +18,7 @@ class LiquidRequest(Base):
     scheduled_for = Column(DateTime, nullable=True)  # meaningful only for priority
 
     status = Column(String, default="pending")
+
+    loading_deadline = Column(DateTime, nullable=True)
+    accepted_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)

@@ -209,9 +209,6 @@ def assign_best_tanker_for_batch(
     batch: Batch,
     members: list[BatchMember],
 ) -> dict[str, Any]:
-    """
-    Assign the best tanker to a ready batch.
-    """
     current_status = str(getattr(batch, "status", "") or "").lower()
     if current_status in {"assigned", "loading", "delivering", "completed"}:
         return {
@@ -245,82 +242,67 @@ def assign_best_tanker_for_batch(
     best = ranked[0]
     tanker: Tanker = best["tanker"]
 
-    # Assign tanker to batch
-    # tanker.status = "assigned"
-    tanker.status = "assigned"
+    # OFFER-FIRST FOR BATCH
+    tanker.pending_offer_type = "batch"
+    tanker.pending_offer_id = batch.id
+    tanker.offer_expires_at = datetime.utcnow() + timedelta(seconds=OFFER_TTL_SECONDS)
+    tanker.status = "available"
     tanker.is_available = False
 
-    batch.status = "assigned"
-    batch.tanker_id = tanker.id
+    batch.status = "ready_for_assignment"
 
-    # If your Tanker model uses current_request_id only for priority,
-    # leave it alone here unless you intentionally reuse it for batches.
-    # If your Batch model has tanker_id, set it.
-    if hasattr(batch, "tanker_id"):
-        batch.tanker_id = tanker.id
+    offer = create_job_offer(
+        db,
+        tanker_id=tanker.id,
+        job_type="batch",
+        batch_id=batch.id,
+        job_lat=batch.latitude,
+        job_lon=batch.longitude,
+    )
 
-    # db.add(tanker)
-    # db.add(batch)
     db.commit()
     db.refresh(tanker)
     db.refresh(batch)
 
-    # 🔥 CREATE DELIVERY RECORDS (batch = multiple stops)
-    create_delivery_records_for_batch(
-    db,
-    batch_id=batch.id,
-    tanker_id=tanker.id,
-)
-
     return {
         "assigned": True,
+        "offered": True,
         "batch_id": batch.id,
         "tanker_id": tanker.id,
+        "offer_id": offer.id,
         "tanker_name": getattr(tanker, "driver_name", None),
         "score": best["score"],
         "score_breakdown": best["breakdown"],
-        "reason": "Best eligible tanker assigned successfully",
+        "reason": "Batch offer sent to best tanker",
     }
 
 
 def get_eligible_tankers_for_batch(db: Session, batch: Batch) -> list[Tanker]:
-    """
-    V1 eligibility rules for batch assignment:
-    - tanker is online
-    - tanker is available
-    - tanker is not paused
-    - tanker is within assignment radius
-    """
     batch_lat = getattr(batch, "latitude", None)
     batch_lon = getattr(batch, "longitude", None)
+    max_radius_km = getattr(batch, "search_radius_km", None) or 8.0
 
     tankers = db.query(Tanker).all()
     eligible: list[Tanker] = []
 
     for tanker in tankers:
         is_online = bool(getattr(tanker, "is_online", True))
+        is_available = bool(getattr(tanker, "is_available", False))
         status = str(getattr(tanker, "status", "") or "").lower()
         paused_until = getattr(tanker, "paused_until", None)
 
-        # only available tankers should be considered
         if not is_online:
             continue
 
-        # if status not in {"available", "idle"}:
-        #     continue
-        if status != "available":
+        if not is_available or status != "available":
             continue
-        # status == "available"
 
-        # if paused_until is not None:
-        #     continue
         if paused_until and paused_until > datetime.utcnow():
             continue
 
         tanker_lat = getattr(tanker, "latitude", None)
         tanker_lon = getattr(tanker, "longitude", None)
 
-        # if we don't know location, skip for now
         if None in (batch_lat, batch_lon, tanker_lat, tanker_lon):
             continue
 
@@ -331,13 +313,12 @@ def get_eligible_tankers_for_batch(db: Session, batch: Batch) -> list[Tanker]:
             batch_lon,
         )
 
-        if distance_km > MAX_BATCH_ASSIGNMENT_RADIUS_KM:
+        if distance_km > max_radius_km:
             continue
 
         eligible.append(tanker)
 
     return eligible
-
 
 def rank_tankers_for_batch(
     db: Session,

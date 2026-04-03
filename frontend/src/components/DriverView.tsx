@@ -14,6 +14,33 @@ interface DriverViewProps {
   onBack: () => void;
 }
 
+function StateBridgeCard({
+  title,
+  message,
+  onRefresh,
+  isLoading,
+}: {
+  title: string;
+  message: string;
+  onRefresh: () => void | Promise<void>;
+  isLoading: boolean;
+}) {
+  return (
+    <div className="rounded-2xl border bg-card p-5 shadow-sm">
+      <h2 className="text-xl font-bold text-foreground">{title}</h2>
+      <p className="mt-2 text-sm text-muted-foreground">{message}</p>
+
+      <button
+        className="mt-4 inline-flex h-11 items-center justify-center rounded-xl border px-4 text-sm font-medium"
+        onClick={onRefresh}
+        disabled={isLoading}
+      >
+        {isLoading ? "Refreshing..." : "Refresh"}
+      </button>
+    </div>
+  );
+}
+
 const DriverView = ({ onBack }: DriverViewProps) => {
   const [showHelp, setShowHelp] = useState(false);
 
@@ -32,6 +59,7 @@ const DriverView = ({ onBack }: DriverViewProps) => {
     allDelivered,
     allowedActions,
     currentStop,
+    jobResponse,
     otpInput,
     setOtpInput,
     meterStartReading,
@@ -54,7 +82,7 @@ const DriverView = ({ onBack }: DriverViewProps) => {
   } = useDriverFlow(driver);
 
   const renderStep = () => {
-    if (isLoading) {
+    if (isLoading && !incomingOffer && !activeJob && !currentStop) {
       return (
         <div className="rounded-xl border p-4 text-sm">
           Loading current job...
@@ -88,7 +116,18 @@ const DriverView = ({ onBack }: DriverViewProps) => {
         );
 
       case "assigned":
-        return activeJob ? (
+        if (!activeJob) {
+          return (
+            <StateBridgeCard
+              title="Assignment Received"
+              message="Your assignment is syncing. Refresh to continue."
+              onRefresh={refreshJob}
+              isLoading={isActionLoading}
+            />
+          );
+        }
+
+        return (
           <DriverAvailableStep
             job={activeJob}
             isLoading={isActionLoading}
@@ -96,20 +135,54 @@ const DriverView = ({ onBack }: DriverViewProps) => {
             onAcceptJob={acceptJob}
             batchId={activeJob?.jobId || null}
           />
-        ) : null;
+        );
 
       case "loading":
-        return activeJob ? (
-          <DriverLoadingStep
-            job={activeJob}
-            isLoading={isActionLoading}
-            onMarkLoaded={markLoaded}
-          />
-        ) : null;
+        if (!activeJob) {
+          return (
+            <StateBridgeCard
+              title="Preparing Loading Step"
+              message="The app is syncing your accepted job. Refresh in a moment."
+              onRefresh={refreshJob}
+              isLoading={isActionLoading}
+            />
+          );
+        }
+
+        return (
+          <div className="space-y-4">
+            <div className="rounded-2xl border bg-card p-4 shadow-sm">
+              <p className="text-sm font-medium text-foreground">
+                Fill the tanker first.
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {jobResponse?.message ||
+                  "You have up to 90 minutes to load water, then confirm the tanker is ready."}
+              </p>
+            </div>
+
+            <DriverLoadingStep
+              job={activeJob}
+              isLoading={isActionLoading}
+              onMarkLoaded={markLoaded}
+            />
+          </div>
+        );
 
       case "delivering":
       case "arrived":
-        return activeJob ? (
+        if (!activeJob) {
+          return (
+            <StateBridgeCard
+              title="Delivery In Progress"
+              message="The stop is syncing. Refresh to pull the current customer and action state."
+              onRefresh={refreshJob}
+              isLoading={isActionLoading}
+            />
+          );
+        }
+
+        return (
           <DriverDeliveringStep
             currentDelivery={currentDelivery}
             activeDeliveryIdx={activeDeliveryIdx}
@@ -134,19 +207,37 @@ const DriverView = ({ onBack }: DriverViewProps) => {
             onCompleteDelivery={completeDelivery}
             onReset={resetToDashboard}
           />
-        ) : null;
+        );
 
       case "completed":
-        return activeJob ? (
+        if (!activeJob) {
+          return (
+            <StateBridgeCard
+              title="Job Completed"
+              message="The backend has already closed the job. Refresh or go back to dashboard."
+              onRefresh={refreshJob}
+              isLoading={isActionLoading}
+            />
+          );
+        }
+
+        return (
           <DriverCompletedStep
             job={activeJob}
             deliveries={deliveries}
             onBackToDashboard={resetToDashboard}
           />
-        ) : null;
+        );
 
       default:
-        return null;
+        return (
+          <StateBridgeCard
+            title="Driver State Unknown"
+            message="The app could not decide the next step yet. Refresh and try again."
+            onRefresh={refreshJob}
+            isLoading={isActionLoading}
+          />
+        );
     }
   };
 
@@ -168,7 +259,7 @@ const DriverView = ({ onBack }: DriverViewProps) => {
         onOpenHelp={() => setShowHelp(true)}
       />
 
-      <div className="max-w-md mx-auto p-5">{renderStep()}</div>
+      <div className="mx-auto max-w-md p-5">{renderStep()}</div>
 
       {showHelp && <DriverHelpModal onClose={() => setShowHelp(false)} />}
     </div>

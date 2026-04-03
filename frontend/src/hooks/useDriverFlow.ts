@@ -135,8 +135,7 @@ function getStepFromState(
   const tankerStatus = stopResponse?.tanker?.status ?? jobResponse?.tanker_status;
 
   if (!jobResponse?.active_job && !stopResponse?.current_stop) {
-    if (hadActiveStop) return "completed";
-    return "available";
+    return hadActiveStop ? "completed" : "available";
   }
 
   if (stopResponse?.current_stop) {
@@ -185,28 +184,31 @@ export const useDriverFlow = (driver: DriverUser | null) => {
       return;
     }
 
-    try {
-      setIsLoading(true);
+    setIsLoading(true);
 
-      const [offerResult, job, stop] = await Promise.all([
-        fetchIncomingOffer(tankerId).catch(() => null),
-        fetchCurrentDriverJob(tankerId).catch(() => null),
-        fetchCurrentStop(tankerId).catch(() => null),
-      ]);
+    const [offerResult, jobResult, stopResult] = await Promise.allSettled([
+      fetchIncomingOffer(tankerId),
+      fetchCurrentDriverJob(tankerId),
+      fetchCurrentStop(tankerId),
+    ]);
 
-      setIncomingOffer(offerResult?.has_offer ? offerResult.offer : null);
-      setJobResponse(job);
-      setStopResponse(stop);
+    const offer =
+      offerResult.status === "fulfilled" && offerResult.value?.has_offer
+        ? offerResult.value.offer
+        : null;
 
-      if (stop?.current_stop) {
-        setHadActiveStop(true);
-      }
-    } catch (error) {
-      console.error("Failed to refresh driver state:", error);
-      toast.error("Failed to load driver state.");
-    } finally {
-      setIsLoading(false);
+    const job = jobResult.status === "fulfilled" ? jobResult.value : null;
+    const stop = stopResult.status === "fulfilled" ? stopResult.value : null;
+
+    setIncomingOffer(offer);
+    setJobResponse(job);
+    setStopResponse(stop);
+
+    if (stop?.current_stop) {
+      setHadActiveStop(true);
     }
+
+    setIsLoading(false);
   }, [tankerId]);
 
   useEffect(() => {
@@ -376,7 +378,7 @@ export const useDriverFlow = (driver: DriverUser | null) => {
         async () => {
           await acceptDriverBatch(tankerId, batchId);
         },
-        "Batch job accepted successfully."
+        "Batch accepted successfully."
       );
 
       return;
@@ -392,7 +394,7 @@ export const useDriverFlow = (driver: DriverUser | null) => {
       async () => {
         await acceptDriverPriority(tankerId, requestId);
       },
-      "Priority job accepted successfully."
+      "Priority request accepted successfully."
     );
   }, [tankerId, incomingOffer, acceptOffer, jobResponse, runAction]);
 
@@ -439,7 +441,7 @@ export const useDriverFlow = (driver: DriverUser | null) => {
       async () => {
         await markDriverPriorityLoaded(tankerId, requestId);
       },
-      "Priority tanker loaded. Delivery is now in progress."
+      "Water loaded. Delivery is now in progress."
     );
   }, [tankerId, jobResponse, runAction]);
 
@@ -495,13 +497,7 @@ export const useDriverFlow = (driver: DriverUser | null) => {
       },
       "Measurement started successfully."
     );
-  }, [
-    tankerId,
-    currentStop,
-    allowedActions,
-    meterStartReading,
-    runAction,
-  ]);
+  }, [tankerId, currentStop, allowedActions, meterStartReading, runAction]);
 
   const finishMeasurement = useCallback(async () => {
     if (!tankerId) {
