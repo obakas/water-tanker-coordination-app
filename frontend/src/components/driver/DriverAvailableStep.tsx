@@ -7,6 +7,7 @@ interface DriverAvailableStepProps {
   isLoading: boolean;
   onRefresh: () => void | Promise<void>;
   onAcceptJob: () => void | Promise<void>;
+  batchId: number | null;
 }
 
 export const DriverAvailableStep = ({
@@ -74,7 +75,8 @@ export const DriverAvailableStep = ({
           </span>
 
           <span className="text-xs text-muted-foreground">
-  Job #{job.jobType === "batch" ? job.batchId : job.requestId}
+  {/* Job #{job.jobType === "batch" ? job.batchId : job.requestId} */}
+  Job #{job.jobId}
 </span>
         </div>
 

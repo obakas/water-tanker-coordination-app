@@ -5,15 +5,13 @@ import BatchStep from "@/components/client/BatchStep";
 import TankerStep from "@/components/client/TankerStep";
 import DeliveryStep from "@/components/client/DeliveryStep";
 import CompletedStep from "@/components/client/CompletedStep";
+import ExpiredBatchStep from "@/components/client/ExpiredBatchStep";
 import HelpModal from "@/components/client/HelpModal";
 import LeaveBatchWarningModal from "@/components/client/LeaveBatchWarningModal";
-import { useClientFlow } from "@/hooks/useClientFlow";
-import type { ClientViewProps } from "@/types/client";
 import AuthModal from "@/components/client/AuthModal";
 import ThemeToggle from "@/components/ui/ThemeToggle";
-import ExpiredBatchStep  from "@/components/client/ExpiredBatchStep";
-
-
+import { useClientFlow } from "@/hooks/useClientFlow";
+import type { ClientViewProps } from "@/types/client";
 
 const ClientView = ({ onBack }: ClientViewProps) => {
   const {
@@ -23,66 +21,69 @@ const ClientView = ({ onBack }: ClientViewProps) => {
     setSelectedSize,
     requestMode,
     setRequestMode,
-    // selectedTimeSlot,
-    // setSelectedTimeSlot,
+    priorityMode,
+    setPriorityMode,
+    scheduledFor,
+    setScheduledFor,
+
     showHelp,
     setShowHelp,
     showLeaveBatchWarning,
     setShowLeaveBatchWarning,
+
     otp,
     price,
     canContinueToPayment,
     pageTitle,
+
     copyOtp,
-    goBack,
+    handleContinueToPayment,
     handlePayment,
     handleCancelBeforePayment,
     handleLeaveBatch,
     resetClientFlow,
     handleDeliveryConfirmed,
+    handleBackClick,
+
     isSubmittingRequest,
     requestId,
     batchId,
     memberId,
     paymentDeadline,
+
     currentUser,
     showAuthModal,
     setShowAuthModal,
     authMode,
     setAuthMode,
-    handleContinueToPayment,
     handleAuthSuccess,
     handleLogout,
-    handleBackClick,
-    priorityMode,
-    setPriorityMode,
-    scheduledFor,
-    setScheduledFor,
+
     liveBatch,
     liveBatchLoading,
     liveBatchError,
+    refreshLiveBatch,
   } = useClientFlow({ onBack });
-
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-40 bg-card/80 backdrop-blur-md border-b border-border">
-        <div className="flex items-center justify-between px-4 h-14">
-
-          {/* LEFT: back + title */}
+      <header className="sticky top-0 z-40 border-b border-border bg-card/80 backdrop-blur-md">
+        <div className="flex h-14 items-center justify-between px-4">
           <div className="flex items-center gap-3">
-            <button onClick={handleBackClick} className={`text-foreground ${step === "batch" ? "text-red-500" : ""
+            <button
+              onClick={handleBackClick}
+              className={`text-foreground ${
+                step === "batch" ? "text-red-500" : ""
               }`}
+              aria-label="Go back"
             >
               <ArrowLeft className="h-5 w-5" />
             </button>
-            <h1 className="font-bold text-foreground text-lg">{pageTitle}</h1>
+
+            <h1 className="text-lg font-bold text-foreground">{pageTitle}</h1>
           </div>
 
-          {/* RIGHT: user OR sign in + help */}
           <div className="flex items-center gap-3">
-
             {currentUser ? (
               <>
                 <div className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2">
@@ -100,6 +101,7 @@ const ClientView = ({ onBack }: ClientViewProps) => {
                 <button
                   onClick={handleLogout}
                   className="flex items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm hover:bg-muted"
+                  aria-label="Log out"
                 >
                   <LogOut className="h-4 w-4" />
                 </button>
@@ -118,19 +120,18 @@ const ClientView = ({ onBack }: ClientViewProps) => {
 
             <button
               onClick={() => setShowHelp(true)}
-              className="h-9 w-9 rounded-full border border-border bg-card flex items-center justify-center text-foreground hover:border-primary/30 transition-colors"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-foreground transition-colors hover:border-primary/30"
+              aria-label="Open help"
             >
               <CircleHelp className="h-4.5 w-4.5" />
             </button>
 
             <ThemeToggle />
-
           </div>
         </div>
       </header>
 
-      <div className="max-w-md mx-auto p-5">
-        {/* step: Request */}
+      <div className="mx-auto max-w-md p-5">
         {step === "request" && (
           <RequestStep
             requestMode={requestMode}
@@ -147,7 +148,6 @@ const ClientView = ({ onBack }: ClientViewProps) => {
           />
         )}
 
-        {/* Step: Payment */}
         {step === "payment" && (
           <PaymentStep
             price={price}
@@ -161,7 +161,6 @@ const ClientView = ({ onBack }: ClientViewProps) => {
           />
         )}
 
-        {/* Step: Batch Status */}
         {step === "batch" && (
           <BatchStep
             otp={otp}
@@ -179,19 +178,16 @@ const ClientView = ({ onBack }: ClientViewProps) => {
           />
         )}
 
-
-        {/* Step: Tanker Assigned / Priority Delivery */}
         {step === "tanker" && (
           <TankerStep
             requestMode={requestMode}
             priorityMode={priorityMode}
             scheduledFor={scheduledFor}
-            selectedSize={selectedSize}
+            selectedSize={selectedSize ?? 0}
             onArrived={() => setStep("delivery")}
           />
         )}
 
-        {/* Step: Delivery */}
         {step === "delivery" && (
           <DeliveryStep
             requestMode={requestMode}
@@ -200,7 +196,6 @@ const ClientView = ({ onBack }: ClientViewProps) => {
           />
         )}
 
-        {/* Step: Completed */}
         {step === "completed" && (
           <CompletedStep
             selectedSize={selectedSize}
@@ -213,22 +208,18 @@ const ClientView = ({ onBack }: ClientViewProps) => {
           />
         )}
 
-        {/* Step: Expired */}
         {step === "expired" && (
           <ExpiredBatchStep
             liveBatch={liveBatch}
             memberId={memberId}
             onBackHome={resetClientFlow}
-            refreshLiveBatch={() => {}}
+            refreshLiveBatch={refreshLiveBatch}
           />
         )}
       </div>
 
-      {/* Help Modal */}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
 
-
-      {/* Leave Batch Warning Modal */}
       {showLeaveBatchWarning && (
         <LeaveBatchWarningModal
           onClose={() => setShowLeaveBatchWarning(false)}
@@ -244,9 +235,8 @@ const ClientView = ({ onBack }: ClientViewProps) => {
           onModeChange={setAuthMode}
         />
       )}
-    </div >
+    </div>
   );
-}
+};
 
 export default ClientView;
-

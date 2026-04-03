@@ -9,6 +9,7 @@ from app.schemas.delivery import (
     FinishMeasurementIn,
     SkipDeliveryIn,
     StartMeasurementIn,
+    TankerCurrentStopResponse,
 )
 from app.services.delivery_service import (
     arrive_delivery_stop,
@@ -24,28 +25,43 @@ from app.services.delivery_service import (
 router = APIRouter(prefix="/deliveries", tags=["Deliveries"])
 
 
-@router.get("/tankers/{tanker_id}/current-stop")
+# @router.get("/tankers/{tanker_id}/current-stop")
+# def get_tanker_current_stop(
+#     tanker_id: int,
+#     db: Session = Depends(get_db),
+# ):
+#     """
+#     Get the current active delivery stop for a tanker.
+#     Useful for a backend-driven driver UI.
+#     """
+#     result = get_current_delivery_for_tanker(db, tanker_id)
+
+#     current_delivery = result.get("current_delivery")
+
+#     return {
+#         "tanker_id": result["tanker_id"],
+#         "remaining_stops": result["remaining_stops"],
+#         "allowed_actions": result["allowed_actions"],
+#         "current_delivery": DeliveryOut.model_validate(current_delivery).model_dump()
+#         if current_delivery
+#         else None,
+#         "message": result.get("message"),
+#     }
+
+@router.get(
+    "/tankers/{tanker_id}/current-stop",
+    response_model=TankerCurrentStopResponse,
+)
 def get_tanker_current_stop(
     tanker_id: int,
     db: Session = Depends(get_db),
 ):
     """
-    Get the current active delivery stop for a tanker.
-    Useful for a backend-driven driver UI.
+    Driver polling endpoint.
+    Returns tanker meta, job meta, current stop, allowed actions,
+    and stop summary for the active job.
     """
-    result = get_current_delivery_for_tanker(db, tanker_id)
-
-    current_delivery = result.get("current_delivery")
-
-    return {
-        "tanker_id": result["tanker_id"],
-        "remaining_stops": result["remaining_stops"],
-        "allowed_actions": result["allowed_actions"],
-        "current_delivery": DeliveryOut.model_validate(current_delivery).model_dump()
-        if current_delivery
-        else None,
-        "message": result.get("message"),
-    }
+    return get_current_delivery_for_tanker(db, tanker_id)
 
 
 @router.post("/{delivery_id}/arrive")

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import type { ClientStep, RequestMode } from "@/types/client";
 import {
@@ -10,13 +10,35 @@ import {
 import { useLiveBatch } from "@/hooks/useLiveBatch";
 import { createWaterRequest, type UserResponse } from "@/lib/api";
 import { leaveBatchMember } from "@/lib/batches";
-import { error } from "console";
 
 interface UseClientFlowParams {
   onBack: () => void;
 }
 
 type AuthMode = "signup" | "login";
+
+interface ClientSession {
+  requestId: number | null;
+  batchId: number | null;
+  memberId: number | null;
+  paymentDeadline: string | null;
+  requestMode: RequestMode;
+  selectedSize: number | null;
+  priorityMode: "asap" | "scheduled";
+  scheduledFor: string;
+  otp: string;
+}
+
+interface RequestResponseWithOtp {
+  request_id?: number | null;
+  batch_id?: number | null;
+  member_id?: number | null;
+  payment_deadline?: string | null;
+  delivery_code?: string | null;
+}
+
+const CLIENT_SESSION_KEY = "water_client_session";
+const USER_KEY = "water_user";
 
 export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
   const [step, setStep] = useState<ClientStep>("request");
@@ -27,9 +49,7 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
 
   const [showHelp, setShowHelp] = useState(false);
   const [showLeaveBatchWarning, setShowLeaveBatchWarning] = useState(false);
-  const [otp, setOtp] = useState(() =>
-    Math.floor(1000 + Math.random() * 9000).toString()
-  );
+  const [otp, setOtp] = useState<string>("");
 
   const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
   const [requestId, setRequestId] = useState<number | null>(null);
@@ -41,20 +61,12 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("signup");
 
-  // const {
-  //   batch: liveBatch,
-  //   isLoading: liveBatchLoading,
-  //   hasResolvedOnce,
-  //   error: liveBatchError,
-  // } = useLiveBatch(batchId ?? null, memberId ?? null, 8000);
-
   const {
     batch: liveBatch,
     isLoading: liveBatchLoading,
     error: liveBatchError,
     refresh: refreshLiveBatch,
   } = useLiveBatch(batchId, memberId, 8000);
-
 
   function resolveClientStep(
     batch: typeof liveBatch,
@@ -72,11 +84,8 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
       return "tanker";
     }
 
-    if (status === "delivering") {
+    if (status === "delivering" || status === "arrived") {
       return "delivery";
-    }
-    if (status === "arrived") {
-      return "arrived";
     }
 
     if (status === "completed") {
@@ -90,74 +99,124 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     return fallbackStep;
   }
 
-  // const resolvedStep = resolveClientStep(liveBatch, requestMode, step);
-  const resolvedStep = resolveClientStep(liveBatch, step);
-  // const resolvedStep = resolveClientStep(liveBatch, requestMode === "batch" ? "batch" : "payment");
+  const resolvedStep = useMemo(
+    () => resolveClientStep(liveBatch, step),
+    [liveBatch, step]
+  );
 
+  const price = useMemo(() => {
+    if (requestMode === "priority") {
+      return (
+        PRIORITY_FULL_TANKER_PRICE +
+        PRIORITY_FULL_TANKER_PRICE * PLATFORM_PRIORITY_COMMISSION_RATE
+      );
+    }
+
+    if (!selectedSize) return 0;
+
+    return (
+      selectedSize * BATCH_PRICE_PER_LITER +
+      selectedSize * BATCH_PRICE_PER_LITER * PLATFORM_BATCH_COMMISSION_RATE
+    );
+  }, [requestMode, selectedSize]);
+
+  const canContinueToPayment = useMemo(() => {
+    if (!selectedSize) return false;
+
+    if (requestMode === "batch") return true;
+
+    if (priorityMode === "asap") return true;
+
+    return !!scheduledFor;
+  }, [selectedSize, requestMode, priorityMode, scheduledFor]);
 
   useEffect(() => {
-    const savedUser = localStorage.getItem("water_user");
-
+    const savedUser = localStorage.getItem(USER_KEY);
     if (!savedUser) return;
 
     try {
       const parsedUser: UserResponse = JSON.parse(savedUser);
       setCurrentUser(parsedUser);
     } catch {
-      localStorage.removeItem("water_user");
+      localStorage.removeItem(USER_KEY);
     }
   }, []);
 
-  // useEffect(() => {
-  //   if (!batchId) return;
-  //   if (!liveBatch) return;
-  //   if (requestMode !== "batch") return;
+  useEffect(() => {
+    const savedSession = localStorage.getItem(CLIENT_SESSION_KEY);
+    if (!savedSession) return;
 
-  //   const status = liveBatch.status;
+    try {
+      const parsed: ClientSession = JSON.parse(savedSession);
 
-  //   if (["forming", "near_ready", "ready_for_assignment"].includes(status)) {
-  //     if (step !== "batch") setStep("batch");
-  //     return;
-  //   }
+      setRequestId(parsed.requestId ?? null);
+      setBatchId(parsed.batchId ?? null);
+      setMemberId(parsed.memberId ?? null);
+      setPaymentDeadline(parsed.paymentDeadline ?? null);
+      setRequestMode(parsed.requestMode ?? "batch");
+      setSelectedSize(parsed.selectedSize ?? null);
+      setPriorityMode(parsed.priorityMode ?? "asap");
+      setScheduledFor(parsed.scheduledFor ?? "");
+      setOtp(parsed.otp ?? "");
 
-  //   if (["assigned", "loading"].includes(status)) {
-  //     if (step !== "tanker") setStep("tanker");
-  //     return;
-  //   }
+      if (parsed.requestMode === "batch" && parsed.batchId) {
+        setStep("batch");
+      } else if (parsed.requestMode === "priority" && parsed.requestId) {
+        setStep("tanker");
+      }
+    } catch {
+      localStorage.removeItem(CLIENT_SESSION_KEY);
+    }
+  }, []);
 
-  //   if (status === "delivering") {
-  //     if (step !== "delivery") setStep("delivery");
-  //     return;
-  //   }
+  useEffect(() => {
+    if (liveBatch?.otp) {
+      setOtp(liveBatch.otp);
+    }
+  }, [liveBatch?.otp]);
 
-  //   if (status === "completed") {
-  //     if (step !== "completed") setStep("completed");
-  //     return;
-  //   }
+  useEffect(() => {
+    const session: ClientSession = {
+      requestId,
+      batchId,
+      memberId,
+      paymentDeadline,
+      requestMode,
+      selectedSize,
+      priorityMode,
+      scheduledFor,
+      otp,
+    };
 
-  //   if (status === "expired") {
-  //     if (step !== "expired") setStep("expired");
-  //   }
-  // }, [batchId, liveBatch, requestMode, step]);
+    const hasSessionData =
+      !!requestId ||
+      !!batchId ||
+      !!memberId ||
+      !!paymentDeadline ||
+      !!selectedSize ||
+      otp.length > 0;
 
-  const price =
-    requestMode === "priority"
-      ? PRIORITY_FULL_TANKER_PRICE +
-      PRIORITY_FULL_TANKER_PRICE * PLATFORM_PRIORITY_COMMISSION_RATE
-      : selectedSize
-        ? selectedSize * BATCH_PRICE_PER_LITER +
-        selectedSize * BATCH_PRICE_PER_LITER * PLATFORM_BATCH_COMMISSION_RATE
-        : 0;
-
-  const canContinueToPayment =
-    !!selectedSize &&
-    (
-      requestMode === "batch" ||
-      (requestMode === "priority" &&
-        (priorityMode === "asap" || !!scheduledFor))
-    );
+    if (hasSessionData) {
+      localStorage.setItem(CLIENT_SESSION_KEY, JSON.stringify(session));
+    }
+  }, [
+    requestId,
+    batchId,
+    memberId,
+    paymentDeadline,
+    requestMode,
+    selectedSize,
+    priorityMode,
+    scheduledFor,
+    otp,
+  ]);
 
   const copyOtp = async () => {
+    if (!otp) {
+      toast.error("No OTP available yet");
+      return;
+    }
+
     try {
       await navigator.clipboard.writeText(otp);
       toast.success("OTP copied to clipboard");
@@ -183,7 +242,7 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
 
   const handleAuthSuccess = (user: UserResponse) => {
     setCurrentUser(user);
-    localStorage.setItem("water_user", JSON.stringify(user));
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
     setShowAuthModal(false);
     toast.success(`Welcome, ${user.name}!`);
     setStep("payment");
@@ -191,49 +250,42 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
 
   const handleLogout = () => {
     setCurrentUser(null);
-    localStorage.removeItem("water_user");
+    localStorage.removeItem(USER_KEY);
     toast.success("Logged out");
     resetClientFlow();
   };
 
   const goBack = () => {
-    // if (step === "request") {
     if (resolvedStep === "request") {
       onBack();
       return;
     }
 
-    // if (step === "payment") {
     if (resolvedStep === "payment") {
       setStep("request");
       return;
     }
 
-    // if (step === "batch") {
     if (resolvedStep === "batch") {
       setStep("payment");
       return;
     }
 
-    // if (step === "tanker") {
     if (resolvedStep === "tanker") {
       setStep(requestMode === "batch" ? "batch" : "payment");
       return;
     }
 
-    // if (step === "delivery") {
     if (resolvedStep === "delivery") {
       setStep("tanker");
       return;
     }
 
-    // if (step === "completed") {
     if (resolvedStep === "completed") {
       setStep("delivery");
       return;
     }
 
-    // if (step === "expired") {
     if (resolvedStep === "expired") {
       setStep("batch");
     }
@@ -278,25 +330,35 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
           : {}),
       };
 
-      const response = await createWaterRequest(payload);
+      const response = (await createWaterRequest(
+        payload
+      )) as RequestResponseWithOtp;
 
-      const clientSession = {
-        requestId: response.request_id ?? null,
-        batchId: response.batch_id ?? null,
-        memberId: response.member_id ?? null,
-        paymentDeadline: response.payment_deadline ?? null,
+      const nextRequestId = response.request_id ?? null;
+      const nextBatchId = response.batch_id ?? null;
+      const nextMemberId = response.member_id ?? null;
+      const nextPaymentDeadline = response.payment_deadline ?? null;
+      const nextOtp = response.delivery_code ?? "";
+
+      setRequestId(nextRequestId);
+      setBatchId(nextBatchId);
+      setMemberId(nextMemberId);
+      setPaymentDeadline(nextPaymentDeadline);
+      setOtp(nextOtp);
+
+      const clientSession: ClientSession = {
+        requestId: nextRequestId,
+        batchId: nextBatchId,
+        memberId: nextMemberId,
+        paymentDeadline: nextPaymentDeadline,
         requestMode,
         selectedSize,
+        priorityMode,
+        scheduledFor,
+        otp: nextOtp,
       };
 
-      localStorage.setItem("water_client_session", JSON.stringify(clientSession));
-
-      console.log("createWaterRequest response", response);
-
-      setRequestId(response.request_id ?? null);
-      setBatchId(response.batch_id ?? null);
-      setMemberId(response.member_id ?? null);
-      setPaymentDeadline(response.payment_deadline ?? null);
+      localStorage.setItem(CLIENT_SESSION_KEY, JSON.stringify(clientSession));
 
       toast.success("Payment confirmed and request created!");
 
@@ -314,72 +376,52 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     }
   };
 
-  useEffect(() => {
-    const savedSession = localStorage.getItem("water_client_session");
-    if (!savedSession) return;
-
-    try {
-      const parsed = JSON.parse(savedSession);
-
-      setRequestId(parsed.requestId ?? null);
-      setBatchId(parsed.batchId ?? null);
-      setMemberId(parsed.memberId ?? null);
-      setPaymentDeadline(parsed.paymentDeadline ?? null);
-      setRequestMode(parsed.requestMode ?? "batch");
-      setSelectedSize(parsed.selectedSize ?? null);
-
-      if (parsed.batchId) {
-        setStep("batch");
-      }
-    } catch {
-      localStorage.removeItem("water_client_session");
-    }
-  }, []);
-
-  // localStorage.removeItem("water_client_session");
-
   const handleCancelBeforePayment = () => {
     setSelectedSize(null);
     setPriorityMode("asap");
     setScheduledFor("");
     setRequestMode("batch");
+    setOtp("");
     toast.success("Request cancelled before payment");
     setStep("request");
   };
 
   const handleLeaveBatch = async () => {
-    if (!memberId) return;
+    if (!memberId) {
+      toast.error("No batch membership found");
+      return;
+    }
 
     try {
       await leaveBatchMember(memberId);
-      localStorage.removeItem("water_client_session");
+      localStorage.removeItem(CLIENT_SESSION_KEY);
       toast.success("You left the batch. Your payment was forfeited.");
       resetClientFlow();
     } catch (error) {
       const message =
-      error instanceof Error ? error.message : "Failed to leave batch";
+        error instanceof Error ? error.message : "Failed to leave batch";
       toast.error(message);
     }
   };
 
   const resetClientFlow = () => {
-    localStorage.removeItem("water_client_session");
+    localStorage.removeItem(CLIENT_SESSION_KEY);
     setStep("request");
     setSelectedSize(null);
+    setRequestMode("batch");
+    setPriorityMode("asap");
+    setScheduledFor("");
+    setShowHelp(false);
+    setShowLeaveBatchWarning(false);
+    setOtp("");
+    setIsSubmittingRequest(false);
     setRequestId(null);
     setBatchId(null);
     setMemberId(null);
     setPaymentDeadline(null);
-    setPriorityMode("asap");
-    setScheduledFor("");
-    setRequestMode("batch");
-    setShowHelp(false);
-    setShowLeaveBatchWarning(false);
-    setOtp(Math.floor(1000 + Math.random() * 9000).toString());
   };
 
   const handleBackClick = () => {
-    // if (step === "batch") {
     if (resolvedStep === "batch") {
       setShowLeaveBatchWarning(true);
       return;
@@ -388,38 +430,22 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     goBack();
   };
 
-  // const pageTitle =
-  //   step === "request"
-  //     ? "Request Water"
-  //     : step === "payment"
-  //       ? "Confirm Payment"
-  //       : step === "batch"
-  //         ? "Your Batch"
-  //         : step === "tanker"
-  //           ? requestMode === "priority"
-  //             ? "Priority Delivery"
-  //             : "Tanker Assigned"
-  //           : step === "delivery"
-  //             ? "Delivery"
-  //             : step === "expired"
-  //               ? "Batch Expired"
-  //               : "Completed";
   const pageTitle =
     resolvedStep === "request"
       ? "Request Water"
       : resolvedStep === "payment"
-        ? "Confirm Payment"
-        : resolvedStep === "batch"
-          ? "Your Batch"
-          : resolvedStep === "tanker"
-            ? requestMode === "priority"
-              ? "Priority Delivery"
-              : "Tanker Assigned"
-            : resolvedStep === "delivery"
-              ? "Delivery"
-              : resolvedStep === "expired"
-                ? "Batch Expired"
-                : "Completed";
+      ? "Confirm Payment"
+      : resolvedStep === "batch"
+      ? "Your Batch"
+      : resolvedStep === "tanker"
+      ? requestMode === "priority"
+        ? "Priority Delivery"
+        : "Tanker Assigned"
+      : resolvedStep === "delivery"
+      ? "Delivery"
+      : resolvedStep === "expired"
+      ? "Batch Expired"
+      : "Completed";
 
   const handleDeliveryConfirmed = () => {
     toast.success("Delivery confirmed! Thank you.");
@@ -432,39 +458,51 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     console.log("live batch state", {
       batchId,
       memberId,
-      // hasResolvedOnce,
       liveBatchLoading,
       liveBatch,
       liveBatchError,
-      step,
+      rawStep: step,
       resolvedStep,
     });
   }, [
     batchId,
     memberId,
-    // hasResolvedOnce,
     liveBatchLoading,
     liveBatch,
     liveBatchError,
     step,
+    resolvedStep,
   ]);
 
   return {
-    // step,
     step: resolvedStep,
+    rawStep: step,
+    resolvedStep,
     setStep,
+
     selectedSize,
     setSelectedSize,
+
     requestMode,
     setRequestMode,
+
+    priorityMode,
+    setPriorityMode,
+
+    scheduledFor,
+    setScheduledFor,
+
     showHelp,
     setShowHelp,
+
     showLeaveBatchWarning,
     setShowLeaveBatchWarning,
+
     otp,
     price,
     canContinueToPayment,
     pageTitle,
+
     copyOtp,
     goBack,
     handleContinueToPayment,
@@ -473,11 +511,14 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     handleLeaveBatch,
     resetClientFlow,
     handleDeliveryConfirmed,
+    handleBackClick,
+
     isSubmittingRequest,
     requestId,
     batchId,
     memberId,
     paymentDeadline,
+
     currentUser,
     showAuthModal,
     setShowAuthModal,
@@ -485,13 +526,10 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     setAuthMode,
     handleAuthSuccess,
     handleLogout,
-    handleBackClick,
-    priorityMode,
-    setPriorityMode,
-    scheduledFor,
-    setScheduledFor,
+
     liveBatch,
     liveBatchLoading,
     liveBatchError,
+    refreshLiveBatch,
   };
 };

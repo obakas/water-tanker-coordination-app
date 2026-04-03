@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+import { loginDriver, signupDriver } from "@/lib/driverApi";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
@@ -33,16 +35,16 @@ interface DriverAuthModalProps {
     id: number;
     name: string;
     phone: string;
-    tankerId: number;
+    tanker_plate: string;
   }) => void;
 }
 
-interface DriverLoginResponse {
-  id: number;
-  name: string;
-  phone: string;
-  tankerId: number;
-}
+// interface DriverLoginResponse {
+//   id: number;
+//   name: string;
+//   phone: string;
+//   tankerId: number;
+// }
 
 const DriverAuthModal = ({ onLogin }: DriverAuthModalProps) => {
   const [mode, setMode] = useState<"login" | "signup">("login");
@@ -51,67 +53,101 @@ const DriverAuthModal = ({ onLogin }: DriverAuthModalProps) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [tankPlateNumber, setTankPlateNumber] = useState("");
+  const [, setIsSubmitting] = useState(false);
+  const isLogin = mode === "login";
+  const [,setTankerPlateNumber] = useState("");
 
-  const handleSubmit = async () => {
-    setError("");
+  // const handleSubmit = async () => {
+  //   setError("");
 
-    if (!phone.trim()) {
-      setError("Phone number is required");
-      return;
-    }
+  //   if (!phone.trim()) {
+  //     setError("Phone number is required");
+  //     return;
+  //   }
 
-    if (mode === "login") {
-      const data = await api.post("/auth/driver-login", {
-        phone: phone.trim(),
-      }) as DriverLoginResponse;
+  //   if (mode === "login") {
+  //     const data = await api.post("/auth/driver-login", {
+  //       phone: phone.trim(),
+  //     }) as DriverLoginResponse;
 
-      onLogin({
-        id: data.id,
-        name: data.name,
-        phone: data.phone,
-        tankerId: data.tankerId,
-      });
-    } else {
-      const data = await api.post("/auth/driver-signup", {
-        name: name.trim(),
-        phone: phone.trim(),
-        tank_plate_number: tankPlateNumber.trim(),
-      }) as DriverLoginResponse;
+  //     onLogin({
+  //       id: data.id,
+  //       name: data.name,
+  //       phone: data.phone,
+  //       tankerId: data.tankerId,
+  //     });
+  //   } else {
+  //     const data = await api.post("/auth/driver-signup", {
+  //       name: name.trim(),
+  //       phone: phone.trim(),
+  //       tank_plate_number: tankPlateNumber.trim(),
+  //     }) as DriverLoginResponse;
 
-      onLogin({
-        id: data.id,
-        name: data.name,
-        phone: data.phone,
-        tankerId: data.tankerId,
-      });
-    }
+  //     onLogin({
+  //       id: data.id,
+  //       name: data.name,
+  //       phone: data.phone,
+  //       tankerId: data.tankerId,
+  //     });
+  //   }
+
+  //   try {
+  //     setLoading(true);
+
+  //     if (mode === "login") {
+  //       const data = await api.post("/auth/driver-login", {
+  //         phone: phone.trim(),
+  //       }) as DriverLoginResponse;
+
+  //       console.log("Driver login response:", data);
+
+  //       onLogin({
+  //         id: data.id,
+  //         name: data.name,
+  //         phone: data.phone,
+  //         tankerId: data.tankerId,
+  //       });
+  //     } else {
+  //       setError(
+  //         "Driver signup is not connected yet. Use an existing driver phone number to log in."
+  //       );
+  //     }
+  //   } catch (err: any) {
+  //     console.error("Driver login error:", err);
+  //     setError(err?.message || "Driver login failed");
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
 
     try {
-      setLoading(true);
+      setIsSubmitting(true);
 
-      if (mode === "login") {
-        const data = await api.post("/auth/driver-login", {
-          phone: phone.trim(),
-        }) as DriverLoginResponse;
+      const result = isLogin
+        ? await loginDriver(phone)
+        : await signupDriver(name, phone, tankPlateNumber);
 
-        console.log("Driver login response:", data);
+      onLogin({
+        id: result.id,
+        name: result.name,
+        phone: result.phone,
+        tanker_plate: result.tank_plate_number,
+      });
 
-        onLogin({
-          id: data.id,
-          name: data.name,
-          phone: data.phone,
-          tankerId: data.tankerId,
-        });
-      } else {
-        setError(
-          "Driver signup is not connected yet. Use an existing driver phone number to log in."
-        );
-      }
-    } catch (err: any) {
-      console.error("Driver login error:", err);
-      setError(err?.message || "Driver login failed");
+      // optional reset
+      setName("");
+      setPhone("");
+      setTankerPlateNumber("");
+    } catch (error) {
+      console.error(error);
+      const message =
+        error instanceof Error ? error.message : "Authentication failed.";
+      toast.error(message);
     } finally {
-      setLoading(false);
+      setIsSubmitting(false);
     }
   };
 

@@ -75,7 +75,7 @@ def get_batch_live_snapshot(db: Session, batch_id: int, member_id: int | None = 
         "member_count": len(active_members),
         "tanker_id": tanker.id if tanker else None,
         "driver_name": tanker.driver_name if tanker else None,
-        "otp": getattr(member, "delivery_otp", None) if member else None,
+        "otp": getattr(member, "delivery_code", None) if member else None,
         # "is_member_active": getattr(member, "is_active", None) if member else None,
         "is_member_active": (getattr(member, "status", None) == "active"and getattr(member, "payment_status", None) == "paid") if member else None,
         "refund_eligible": refund_eligible,

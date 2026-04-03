@@ -167,9 +167,11 @@ def update_batch_current_volume(db: Session, batch_id: int):
 
     paid_members = [
         m for m in members
-        if getattr(m, "payment_status", None) == "paid"
+        # if getattr(m, "payment_status", None) == "paid"
         # and getattr(m, "status", None) == "active"
-        and getattr(m, "status", None) == "confirmed"
+        # and getattr(m, "status", None) == "confirmed"
+        if getattr(m, "status", None) == "active"
+        and getattr(m, "payment_status", None) == "paid"
         
     ]
 
@@ -193,7 +195,8 @@ def recalculate_batch_volume(db: Session, batch_id: int) -> Batch:
 
     members = db.query(BatchMember).filter(
         BatchMember.batch_id == batch.id,
-        BatchMember.status.in_(["confirmed", "delivered"]),
+        # BatchMember.status.in_(["confirmed", "delivered"]),
+        BatchMember.status.in_(["active", "delivered"])
     ).all()
 
     batch.current_volume = sum(member.volume_liters for member in members)

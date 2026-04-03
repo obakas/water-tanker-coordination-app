@@ -12,6 +12,7 @@ from app.models.batch_member import BatchMember
 from app.models.DeliveryRecord import DeliveryRecord
 from app.models.request import LiquidRequest
 from app.models.tanker import Tanker
+from app.models.user import User
 
 
 RESOLVED_DELIVERY_STATUSES = {"delivered", "failed", "skipped"}
@@ -94,40 +95,255 @@ def assert_tanker_owns_delivery(tanker_id: int, delivery: DeliveryRecord) -> Non
         )
 
 
+# def get_current_delivery_for_tanker(db: Session, tanker_id: int) -> dict[str, Any]:
+#     tanker = get_tanker_by_id(db, tanker_id)
+
+#     deliveries = (
+#         db.query(DeliveryRecord)
+#         .filter(
+#             DeliveryRecord.tanker_id == tanker.id,
+#             DeliveryRecord.delivery_status.notin_(list(RESOLVED_DELIVERY_STATUSES)),
+#         )
+#         .order_by(DeliveryRecord.stop_order.asc(), DeliveryRecord.id.asc())
+#         .all()
+#     )
+
+#     if not deliveries:
+#         return {
+#             "tanker_id": tanker.id,
+#             "current_delivery": None,
+#             "remaining_stops": 0,
+#             "allowed_actions": [],
+#             "message": "No active delivery stop found",
+#         }
+
+#     # Prefer a delivery already in progress
+#     current = next(
+#         (d for d in deliveries if d.delivery_status in ACTIVE_PROGRESS_STATUSES),
+#         deliveries[0],
+#     )
+
+#     return {
+#         "tanker_id": tanker.id,
+#         "current_delivery": current,
+#         "remaining_stops": len(deliveries),
+#         "allowed_actions": resolve_allowed_actions(current),
+#     }
 def get_current_delivery_for_tanker(db: Session, tanker_id: int) -> dict[str, Any]:
     tanker = get_tanker_by_id(db, tanker_id)
 
     deliveries = (
         db.query(DeliveryRecord)
-        .filter(
-            DeliveryRecord.tanker_id == tanker.id,
-            DeliveryRecord.delivery_status.notin_(list(RESOLVED_DELIVERY_STATUSES)),
-        )
+        .filter(DeliveryRecord.tanker_id == tanker.id)
         .order_by(DeliveryRecord.stop_order.asc(), DeliveryRecord.id.asc())
         .all()
     )
 
-    if not deliveries:
+    active_deliveries = [
+        d for d in deliveries if d.delivery_status not in RESOLVED_DELIVERY_STATUSES
+    ]
+
+    if not active_deliveries:
         return {
-            "tanker_id": tanker.id,
-            "current_delivery": None,
-            "remaining_stops": 0,
+            "tanker": {
+                "id": tanker.id,
+                "driver_name": tanker.driver_name,
+                "phone": tanker.phone,
+                "tank_plate_number": tanker.tank_plate_number,
+                "status": tanker.status,
+                "is_available": tanker.is_available,
+            },
+            "job": None,
+            "current_stop": None,
             "allowed_actions": [],
+            "stops_summary": [],
             "message": "No active delivery stop found",
         }
 
-    # Prefer a delivery already in progress
     current = next(
-        (d for d in deliveries if d.delivery_status in ACTIVE_PROGRESS_STATUSES),
-        deliveries[0],
+        (d for d in active_deliveries if d.delivery_status in ACTIVE_PROGRESS_STATUSES),
+        active_deliveries[0],
     )
 
     return {
-        "tanker_id": tanker.id,
-        "current_delivery": current,
-        "remaining_stops": len(deliveries),
+        "tanker": {
+            "id": tanker.id,
+            "driver_name": tanker.driver_name,
+            "phone": tanker.phone,
+            "tank_plate_number": tanker.tank_plate_number,
+            "status": tanker.status,
+            "is_available": tanker.is_available,
+        },
+        "job": _build_job_meta(db, tanker, current, deliveries),
+        "current_stop": _build_stop_details(db, current),
         "allowed_actions": resolve_allowed_actions(current),
+        "stops_summary": [_build_stop_summary(db, d) for d in deliveries],
+        "message": "Active delivery stop found",
     }
+
+
+def _build_job_meta(
+    db: Session,
+    tanker: Tanker,
+    current: DeliveryRecord | None,
+    deliveries: list[DeliveryRecord],
+) -> dict[str, Any] | None:
+    if not current:
+        return None
+
+    total_stops = len(deliveries)
+    completed_stops = sum(
+        1 for d in deliveries if d.delivery_status in RESOLVED_DELIVERY_STATUSES
+    )
+    remaining_stops = total_stops - completed_stops
+
+    if current.job_type == "batch":
+        batch = get_batch_by_id(db, current.batch_id)
+        return {
+            "job_type": "batch",
+            "job_id": batch.id,
+            "job_status": batch.status,
+            "total_stops": total_stops,
+            "completed_stops": completed_stops,
+            "remaining_stops": remaining_stops,
+        }
+
+    request = get_request_by_id(db, current.request_id)
+    return {
+        "job_type": "priority",
+        "job_id": request.id,
+        "job_status": request.status,
+        "total_stops": total_stops,
+        "completed_stops": completed_stops,
+        "remaining_stops": remaining_stops,
+    }
+
+def _build_stop_summary(db: Session, delivery: DeliveryRecord) -> dict[str, Any]:
+    user = get_user_by_id(db, delivery.user_id)
+
+    return {
+        "delivery_id": delivery.id,
+        "stop_order": delivery.stop_order,
+        "customer_name": user.name if user else None,
+        "phone": user.phone if user else None,
+        "address": user.address if user else None,
+        "planned_liters": delivery.planned_liters,
+        "delivery_status": delivery.delivery_status,
+    }
+
+def _build_stop_details(db: Session, delivery: DeliveryRecord) -> dict[str, Any]:
+    return {
+        "delivery_id": delivery.id,
+        "stop_order": delivery.stop_order,
+        "delivery_status": delivery.delivery_status,
+        "planned_liters": delivery.planned_liters,
+        "actual_liters_delivered": delivery.actual_liters_delivered,
+        "meter_start_reading": delivery.meter_start_reading,
+        "meter_end_reading": delivery.meter_end_reading,
+        "otp_required": delivery.otp_required,
+        "otp_verified": delivery.otp_verified,
+        "delivery_code": delivery.delivery_code,
+        "customer_confirmed": delivery.customer_confirmed,
+        "customer": _build_customer_payload(db, delivery),
+        "location": {
+            "latitude": delivery.latitude,
+            "longitude": delivery.longitude,
+        },
+        "timestamps": {
+            "dispatched_at": delivery.dispatched_at,
+            "arrived_at": delivery.arrived_at,
+            "measurement_started_at": delivery.measurement_started_at,
+            "measurement_completed_at": delivery.measurement_completed_at,
+            "delivered_at": delivery.delivered_at,
+        },
+        "notes": delivery.notes,
+        "failure_reason": delivery.failure_reason,
+    }
+
+def _build_customer_payload(db: Session, delivery: DeliveryRecord) -> dict[str, Any]:
+    user = get_user_by_id(db, delivery.user_id)
+
+    return {
+        "user_id": delivery.user_id,
+        "name": user.name if user else None,
+        "phone": user.phone if user else None,
+        "address": user.address if user else None,
+    }
+
+def generate_delivery_code() -> str:
+    return str(random.randint(1000, 9999))
+
+
+def get_delivery_by_id(db: Session, delivery_id: int) -> DeliveryRecord:
+    delivery = db.query(DeliveryRecord).filter(DeliveryRecord.id == delivery_id).first()
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Delivery record not found")
+    return delivery
+
+
+def get_tanker_by_id(db: Session, tanker_id: int) -> Tanker:
+    tanker = db.query(Tanker).filter(Tanker.id == tanker_id).first()
+    if not tanker:
+        raise HTTPException(status_code=404, detail="Tanker not found")
+    return tanker
+
+
+def get_batch_by_id(db: Session, batch_id: int) -> Batch:
+    batch = db.query(Batch).filter(Batch.id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    return batch
+
+
+def get_member_by_id(db: Session, member_id: int) -> BatchMember:
+    member = db.query(BatchMember).filter(BatchMember.id == member_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Batch member not found")
+    return member
+
+
+def get_request_by_id(db: Session, request_id: int) -> LiquidRequest:
+    request = db.query(LiquidRequest).filter(LiquidRequest.id == request_id).first()
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    return request
+
+
+def get_user_by_id(db: Session, user_id: int | None) -> User | None:
+    if not user_id:
+        return None
+    return db.query(User).filter(User.id == user_id).first()
+
+
+def resolve_allowed_actions(delivery: DeliveryRecord) -> list[str]:
+    status = delivery.delivery_status
+
+    if status in {"pending", "en_route"}:
+        return ["arrive"]
+
+    if status == "arrived":
+        return ["start_measurement"]
+
+    if status == "measuring":
+        return ["finish_measurement"]
+
+    if status == "awaiting_otp":
+        actions = []
+        if not delivery.otp_verified:
+            actions.append("confirm_otp")
+        if delivery.otp_verified:
+            actions.append("complete")
+        return actions
+
+    return []
+
+
+def assert_tanker_owns_delivery(tanker_id: int, delivery: DeliveryRecord) -> None:
+    if delivery.tanker_id != tanker_id:
+        raise HTTPException(
+            status_code=403,
+            detail="This tanker is not allowed to operate on this delivery record",
+        )
 
 
 # -----------------------------------

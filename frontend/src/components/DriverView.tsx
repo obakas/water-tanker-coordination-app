@@ -22,18 +22,29 @@ const DriverView = ({ onBack }: DriverViewProps) => {
     step,
     activeJob,
     deliveries,
-    otpInput,
+    currentDelivery,
     activeDeliveryIdx,
     deliveredCount,
     allDelivered,
-    currentDelivery,
+    allowedActions,
+    currentStop,
+    otpInput,
     setOtpInput,
+    meterStartReading,
+    setMeterStartReading,
+    meterEndReading,
+    setMeterEndReading,
+    deliveryNotes,
+    setDeliveryNotes,
     isLoading,
     isActionLoading,
     refreshJob,
     acceptJob,
     markLoaded,
     markArrived,
+    beginMeasurement,
+    finishMeasurement,
+    verifyOtp,
     completeDelivery,
     resetToDashboard,
   } = useDriverFlow(driver);
@@ -56,22 +67,24 @@ const DriverView = ({ onBack }: DriverViewProps) => {
             isLoading={isActionLoading}
             onRefresh={refreshJob}
             onAcceptJob={acceptJob}
+            batchId={activeJob?.jobId || null}
           />
         );
 
       case "assigned":
-      // case "loading":
+        // case "loading":
         return activeJob ? (
           <DriverAvailableStep
             job={activeJob}
             isLoading={isActionLoading}
             onRefresh={refreshJob}
             onAcceptJob={acceptJob}
+            batchId={activeJob?.jobId || null}
           />
         ) : null;
 
       case "loading":
-      // case "loading":
+        // case "loading":
         return activeJob ? (
           <DriverLoadingStep
             job={activeJob}
@@ -84,17 +97,28 @@ const DriverView = ({ onBack }: DriverViewProps) => {
       case "arrived":
         return activeJob ? (
           <DriverDeliveringStep
-            job={activeJob}
-            deliveries={deliveries}
-            activeDeliveryIdx={activeDeliveryIdx}
             currentDelivery={currentDelivery}
+            activeDeliveryIdx={activeDeliveryIdx}
             deliveredCount={deliveredCount}
+            totalStops={deliveries.length}
             allDelivered={allDelivered}
+            allowedActions={allowedActions}
+            currentStopStatus={currentStop?.delivery_status ?? null}
             otpInput={otpInput}
+            setOtpInput={setOtpInput}
+            meterStartReading={meterStartReading}
+            setMeterStartReading={setMeterStartReading}
+            meterEndReading={meterEndReading}
+            setMeterEndReading={setMeterEndReading}
+            deliveryNotes={deliveryNotes}
+            setDeliveryNotes={setDeliveryNotes}
             isLoading={isActionLoading}
-            onOtpChange={setOtpInput}
             onMarkArrived={markArrived}
+            onBeginMeasurement={beginMeasurement}
+            onFinishMeasurement={finishMeasurement}
+            onVerifyOtp={verifyOtp}
             onCompleteDelivery={completeDelivery}
+            onReset={resetToDashboard}
           />
         ) : null;
 

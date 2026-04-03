@@ -395,8 +395,14 @@ def complete_batch_delivery(
 
     members = db.query(BatchMember).filter(BatchMember.batch_id == batch.id).all()
 
+    # for member in members:
+    #     if member.status == "confirmed":
+    #         member.status = "delivered"
+    # LEGACY ROUTE:
+# Delivery execution is now managed through DeliveryRecord stop completion.
+# This route should not be used by the driver frontend.
     for member in members:
-        if member.status == "confirmed":
+        if member.status == "active" and member.payment_status == "paid":
             member.status = "delivered"
             member.delivered_at = datetime.utcnow()
             member.customer_confirmed = True
