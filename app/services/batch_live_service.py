@@ -17,6 +17,12 @@ def build_next_action_hint(status: str, remaining_volume: float) -> str:
         return "Driver is delivering this batch."
     if status == "completed":
         return "Batch delivery completed."
+    if status == "partially_completed":
+        return "Batch finished, but some stops were not completed successfully."
+    if status == "failed":
+        return "Batch delivery failed during execution."
+    if status == "assignment_failed":
+        return "Batch was filled, but no driver could be secured in time."
     if status == "expired":
         return "Batch expired before dispatch."
     return "Batch updated."

@@ -24,10 +24,22 @@ def create_and_assign_priority_request(db: Session, data) -> dict[str, Any]:
     )
 
     if not assignment_result:
-        raise HTTPException(
-            status_code=404,
-            detail="No available tanker found for priority delivery",
-        )
+        request.status = "searching_driver"
+        request.assignment_started_at = request.assignment_started_at or datetime.utcnow()
+        request.assignment_failed_reason = "no_eligible_tankers_available_now"
+        request.refund_eligible = False
+        db.commit()
+        db.refresh(request)
+        return {
+            "message": "Priority request created. Searching for a tanker.",
+            "request_id": request.id,
+            "tanker_id": None,
+            "request_status": request.status,
+            "tanker_status": None,
+            "scheduled_for": request.scheduled_for.isoformat() if request.scheduled_for else None,
+            "score_breakdown": None,
+            "ranked_candidates": [],
+        }
 
     tanker = assignment_result["tanker"]
 
@@ -177,10 +189,21 @@ def activate_scheduled_priority_request(db: Session, request_id: int) -> dict[st
     )
 
     if not assignment_result:
-        raise HTTPException(
-            status_code=404,
-            detail="No available tanker found for scheduled priority delivery",
-        )
+        request.status = "searching_driver"
+        request.assignment_started_at = request.assignment_started_at or datetime.utcnow()
+        request.assignment_failed_reason = "no_eligible_tankers_available_now"
+        request.refund_eligible = False
+        db.commit()
+        db.refresh(request)
+        return {
+            "message": "Scheduled priority request activated. Searching for a tanker.",
+            "request_id": request.id,
+            "tanker_id": None,
+            "request_status": request.status,
+            "tanker_status": None,
+            "score_breakdown": None,
+            "ranked_candidates": [],
+        }
 
     tanker = assignment_result["tanker"]
 

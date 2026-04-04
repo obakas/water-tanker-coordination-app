@@ -25,6 +25,9 @@ class LiquidRequest(Base):
     retry_count = Column(Integer, default=0, nullable=False)
     last_offer_at = Column(DateTime, nullable=True)
     assignment_failed_reason = Column(String, nullable=True)
+    assignment_started_at = Column(DateTime, nullable=True)
+    assignment_failed_at = Column(DateTime, nullable=True)
+    refund_eligible = Column(Boolean, default=False, nullable=False)
 
     loading_deadline = Column(DateTime, nullable=True)
     accepted_at = Column(DateTime, nullable=True)

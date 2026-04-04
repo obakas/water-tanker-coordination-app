@@ -23,6 +23,8 @@ class Batch(Base):
     base_price = Column(Float, default=40000)
 
     tanker_id = Column(Integer, ForeignKey("tankers.id"), nullable=True)
+    assignment_started_at = Column(DateTime, nullable=True)
+    assignment_failed_at = Column(DateTime, nullable=True)
     loading_deadline = Column(DateTime, nullable=True)
     delivering_started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)

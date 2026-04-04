@@ -31,7 +31,10 @@ class BatchLiveResponse(BaseModel):
         "delivering",
         "arrived",
         "completed",
+        "partially_completed",
+        "failed",
         "expired",
+        "assignment_failed",
     ]
     current_volume: float
     target_volume: float

@@ -40,9 +40,18 @@ class DeliveryRecord(Base):
     # pending | en_route | arrived | measuring | awaiting_otp | delivered | failed | skipped
     delivery_status = Column(String, default="pending", nullable=False)
 
+    # trust controls
+    measurement_required = Column(Boolean, default=True, nullable=False)
+    measurement_valid = Column(Boolean, default=False, nullable=False)
+    anomaly_flagged = Column(Boolean, default=False, nullable=False)
+    anomaly_reason = Column(String, nullable=True)
+
     otp_required = Column(Boolean, default=True, nullable=False)
     otp_verified = Column(Boolean, default=False, nullable=False)
     otp_verified_at = Column(DateTime, nullable=True)
+    otp_expires_at = Column(DateTime, nullable=True)
+    otp_consumed_at = Column(DateTime, nullable=True)
+    otp_invalid_attempts = Column(Integer, default=0, nullable=False)
 
     # store OTP here so batch + priority can share one flow
     delivery_code = Column(String, nullable=True)
@@ -55,12 +64,15 @@ class DeliveryRecord(Base):
     measurement_started_at = Column(DateTime, nullable=True)
     measurement_completed_at = Column(DateTime, nullable=True)
     delivered_at = Column(DateTime, nullable=True)
+    failed_at = Column(DateTime, nullable=True)
+    skipped_at = Column(DateTime, nullable=True)
 
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
 
     notes = Column(String, nullable=True)
     failure_reason = Column(String, nullable=True)
+    skip_reason = Column(String, nullable=True)
 
     photo_proof_url = Column(String, nullable=True)
 

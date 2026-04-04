@@ -8,7 +8,7 @@ from app.models.batch_member import BatchMember
 
 def is_member_eligible_for_refund(member: BatchMember, batch: Batch) -> bool:
     return (
-        batch.status == "expired"
+        batch.status in ["expired", "assignment_failed"]
         and member.status == "active"
         and member.payment_status == "paid"
         and member.refund_status in ["none", "failed"]

@@ -3,7 +3,7 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.core.database import SessionLocal
-from app.services.assignment_service import process_expired_offers
+from app.services.assignment_service import process_expired_offers, process_priority_assignment_timeouts
 from app.services.batch_monitor_service import process_all_active_batches
 from app.services.delivery_timeout_service import expire_overdue_deliveries
 from app.services.loading_timeout_service import expire_overdue_loading_jobs
@@ -34,6 +34,19 @@ def run_offer_expiry_monitor():
     finally:
         db.close()
 
+
+
+
+def run_priority_assignment_timeout_monitor():
+    db = SessionLocal()
+    try:
+        results = process_priority_assignment_timeouts(db)
+        if results:
+            print("Priority assignment timeout monitor tick:")
+            for item in results:
+                print(item)
+    finally:
+        db.close()
 
 def run_loading_timeout_monitor():
     db = SessionLocal()
@@ -72,6 +85,13 @@ def start_scheduler():
             trigger="interval",
             seconds=15,
             id="offer_expiry_monitor_job",
+            replace_existing=True,
+        )
+        scheduler.add_job(
+            run_priority_assignment_timeout_monitor,
+            trigger="interval",
+            seconds=30,
+            id="priority_assignment_timeout_monitor_job",
             replace_existing=True,
         )
         scheduler.add_job(

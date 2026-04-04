@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.models.batch import Batch
 from app.models.batch_member import BatchMember
-from app.services.assignment_service import assign_best_tanker_for_batch
+from app.services.assignment_service import assign_best_tanker_for_batch, has_active_offer_for_batch, get_eligible_tankers_for_batch
 from app.services.batch_orchestration_service import refresh_batch_state
 from app.services.batch_scoring_service import (
     is_batch_ready_for_assignment,
@@ -28,6 +28,7 @@ ACTIVE_BATCH_STATUSES = [
 ]
 
 BATCH_FILL_TIMEOUT_MINUTES = 90
+BATCH_ASSIGNMENT_TIMEOUT_MINUTES = 45
 
 
 def refresh_batch_after_member_change(db: Session, batch_id: int) -> Batch:
@@ -103,6 +104,55 @@ def expire_batch_and_trigger_refunds(db: Session, batch: Batch, reason: str = "b
     }
 
 
+
+
+def is_batch_assignment_timeout_expired(batch: Batch) -> bool:
+    if batch.status not in {"ready_for_assignment", "assigned"}:
+        return False
+    started_at = getattr(batch, "assignment_started_at", None)
+    if not started_at:
+        return False
+    return started_at + timedelta(minutes=BATCH_ASSIGNMENT_TIMEOUT_MINUTES) <= datetime.utcnow()
+
+
+def mark_batch_assignment_failed_and_refund(
+    db: Session,
+    batch: Batch,
+    *,
+    reason: str = "no_driver_available_within_timeout",
+) -> dict:
+    members = get_batch_members(db, batch.id)
+
+    batch.status = "assignment_failed"
+    batch.assignment_failed_at = datetime.utcnow()
+    batch.tanker_id = None
+    batch.loading_deadline = None
+    db.add(batch)
+    db.commit()
+    db.refresh(batch)
+
+    refunds_triggered = 0
+    refund_failures: list[str] = []
+    for member in members:
+        if not is_member_eligible_for_refund(member, batch):
+            # assignment_failed should refund paid active members too
+            if not (member.status == "active" and member.payment_status == "paid" and member.refund_status in ["none", "failed"]):
+                continue
+        try:
+            execute_member_refund(db, member, batch)
+            refunds_triggered += 1
+        except Exception as exc:
+            refund_failures.append(f"member_id={member.id}:{exc}")
+
+    return {
+        "batch_id": batch.id,
+        "status": batch.status,
+        "reason": reason,
+        "refunds_triggered": refunds_triggered,
+        "refund_failures": refund_failures,
+    }
+
+
 def process_single_batch(db: Session, batch: Batch) -> dict:
     result = {
         "batch_id": batch.id,
@@ -128,6 +178,16 @@ def process_single_batch(db: Session, batch: Batch) -> dict:
             if expiry["refund_failures"]:
                 result["errors"].extend(expiry["refund_failures"])
             return result
+
+        if is_batch_assignment_timeout_expired(batch) and not has_active_offer_for_batch(db, batch.id):
+            eligible_now = get_eligible_tankers_for_batch(db, batch)
+            if not eligible_now:
+                failed = mark_batch_assignment_failed_and_refund(db, batch)
+                result["new_status"] = "assignment_failed"
+                result["refunds_triggered"] = failed["refunds_triggered"]
+                if failed["refund_failures"]:
+                    result["errors"].extend(failed["refund_failures"])
+                return result
 
         if should_widen_radius(batch, members):
             batch.search_radius_km = min((batch.search_radius_km or 1) + 1, 5)

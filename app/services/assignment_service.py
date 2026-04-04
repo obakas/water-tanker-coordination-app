@@ -18,14 +18,15 @@ from app.services.driver_scoring_service import (
     haversine_km,
     score_driver_for_batch,
 )
-from app.services.delivery_service import (
-    create_delivery_record_for_priority,
-    create_delivery_records_for_batch,
-)
+# from app.services.delivery_service import (
+#     create_delivery_record_for_priority,
+#     create_delivery_records_for_batch,
+# )
 
 MAX_BATCH_ASSIGNMENT_RADIUS_KM = 2.0
 OFFER_TTL_SECONDS = 60
 MAX_PRIORITY_ASSIGNMENT_RETRIES = 5
+PRIORITY_ASSIGNMENT_TIMEOUT_MINUTES = 20
 
 
 def get_eligible_tankers(db: Session):
@@ -194,6 +195,86 @@ def has_active_offer_for_batch(db: Session, batch_id: int) -> bool:
     )
 
 
+
+
+def mark_priority_assignment_failed(
+    db: Session,
+    request: LiquidRequest,
+    *,
+    reason: str,
+    refund_eligible: bool = True,
+) -> LiquidRequest:
+    request.status = "assignment_failed"
+    request.assignment_failed_reason = reason
+    request.assignment_failed_at = datetime.utcnow()
+    request.refund_eligible = refund_eligible
+    db.add(request)
+    db.flush()
+    return request
+
+
+def has_assignable_tanker_for_request(
+    db: Session,
+    request: LiquidRequest,
+    excluded_tanker_ids: Iterable[int] | None = None,
+) -> bool:
+    ranked = rank_tankers_for_job(
+        db,
+        job_lat=request.latitude,
+        job_lon=request.longitude,
+        job_type="priority",
+    )
+    ranked = _filter_ranked_candidates(ranked, excluded_tanker_ids)
+    return len(ranked) > 0
+
+
+def is_priority_assignment_timeout_expired(request: LiquidRequest) -> bool:
+    if request.status not in {"searching_driver", "assignment_pending"}:
+        return False
+    started_at = getattr(request, "assignment_started_at", None) or getattr(request, "created_at", None)
+    if not started_at:
+        return False
+    return started_at + timedelta(minutes=PRIORITY_ASSIGNMENT_TIMEOUT_MINUTES) <= datetime.utcnow()
+
+
+def process_priority_assignment_timeouts(db: Session) -> list[dict[str, Any]]:
+    requests = (
+        db.query(LiquidRequest)
+        .filter(LiquidRequest.delivery_type == "priority")
+        .filter(LiquidRequest.status.in_(["searching_driver", "assignment_pending"]))
+        .all()
+    )
+
+    results: list[dict[str, Any]] = []
+    for request in requests:
+        if has_active_offer_for_priority_request(db, request.id):
+            continue
+        if not is_priority_assignment_timeout_expired(request):
+            continue
+
+        tried_ids = get_previously_tried_tanker_ids_for_priority_request(db, request.id)
+        if has_assignable_tanker_for_request(db, request, excluded_tanker_ids=tried_ids):
+            continue
+
+        mark_priority_assignment_failed(
+            db,
+            request,
+            reason=request.assignment_failed_reason or "no_driver_available_within_timeout",
+            refund_eligible=True,
+        )
+        db.commit()
+        db.refresh(request)
+        results.append({
+            "request_id": request.id,
+            "status": request.status,
+            "assignment_failed_at": request.assignment_failed_at.isoformat() if request.assignment_failed_at else None,
+            "refund_eligible": request.refund_eligible,
+            "reason": request.assignment_failed_reason,
+        })
+
+    return results
+
+
 def clear_tanker_offer(db: Session, tanker: Tanker, *, make_available: bool = True) -> Tanker:
     tanker.pending_offer_type = None
     tanker.pending_offer_id = None
@@ -245,7 +326,7 @@ def assign_best_tanker_for_priority(
     offer_limit: int = 5,
     excluded_tanker_ids: Iterable[int] | None = None,
 ):
-    if request.status in {"completed", "cancelled", "failed"}:
+    if request.status in {"completed", "cancelled", "failed", "assignment_failed"}:
         return None
 
     if has_active_offer_for_priority_request(db, request.id):
@@ -273,7 +354,10 @@ def assign_best_tanker_for_priority(
 
     request.status = "searching_driver"
     request.last_offer_at = datetime.utcnow()
+    request.assignment_started_at = request.assignment_started_at or datetime.utcnow()
+    request.assignment_failed_at = None
     request.assignment_failed_reason = None
+    request.refund_eligible = False
 
     offer = create_job_offer(
         db,
@@ -313,16 +397,19 @@ def retry_priority_assignment(
     if not request:
         return {"assigned": False, "reason": "request_not_found", "request_id": request_id}
 
-    if request.status in {"completed", "cancelled", "failed"}:
+    if request.status in {"completed", "cancelled", "failed", "assignment_failed"}:
         return {"assigned": False, "reason": f"request_in_terminal_status:{request.status}", "request_id": request.id}
 
     if has_active_offer_for_priority_request(db, request.id):
         return {"assigned": False, "reason": "active_offer_already_exists", "request_id": request.id}
 
     if request.retry_count >= MAX_PRIORITY_ASSIGNMENT_RETRIES:
-        request.status = "failed"
-        request.assignment_failed_reason = failure_reason or "max_retry_limit_reached"
-        db.add(request)
+        mark_priority_assignment_failed(
+            db,
+            request,
+            reason=failure_reason or "max_retry_limit_reached",
+            refund_eligible=True,
+        )
         db.commit()
         db.refresh(request)
         return {"assigned": False, "reason": "max_retry_limit_reached", "request_id": request.id, "status": request.status}
@@ -333,6 +420,9 @@ def retry_priority_assignment(
 
     request.retry_count += 1
     request.status = "searching_driver"
+    request.assignment_started_at = request.assignment_started_at or datetime.utcnow()
+    request.assignment_failed_at = None
+    request.refund_eligible = False
     db.add(request)
     db.flush()
 
@@ -351,8 +441,12 @@ def retry_priority_assignment(
         }
 
     if request.retry_count >= MAX_PRIORITY_ASSIGNMENT_RETRIES:
-        request.status = "failed"
-        request.assignment_failed_reason = failure_reason or "no_more_eligible_tankers"
+        mark_priority_assignment_failed(
+            db,
+            request,
+            reason=failure_reason or "no_more_eligible_tankers",
+            refund_eligible=True,
+        )
     else:
         request.status = "searching_driver"
         request.assignment_failed_reason = failure_reason or "no_eligible_tankers_available_now"
@@ -379,7 +473,7 @@ def retry_batch_assignment(
     if not batch:
         return {"assigned": False, "reason": "batch_not_found", "batch_id": batch_id}
 
-    if batch.status in {"completed", "expired", "cancelled"}:
+    if batch.status in {"completed", "expired", "cancelled", "assignment_failed"}:
         return {"assigned": False, "reason": f"batch_in_terminal_status:{batch.status}", "batch_id": batch.id}
 
     if has_active_offer_for_batch(db, batch.id):
@@ -534,6 +628,8 @@ def assign_best_tanker_for_batch(
     tanker.is_available = False
 
     batch.status = "ready_for_assignment"
+    batch.assignment_started_at = batch.assignment_started_at or datetime.utcnow()
+    batch.assignment_failed_at = None
 
     offer = create_job_offer(
         db,
