@@ -14,7 +14,9 @@ export type DriverJobStatus =
   | "loading"
   | "delivering"
   | "arrived"
-  | "completed";
+  | "completed"
+  | "partially_completed"
+  | "failed";
 
 export type DriverStop = {
   id: number;
@@ -27,15 +29,6 @@ export type DriverStop = {
   latitude?: number;
   longitude?: number;
 };
-
-// export type DriverJob = {
-//   batchId: number;
-//   jobType: DriverJobType;
-//   status: DriverJobStatus;
-//   liquidName?: string;
-//   totalVolumeLiters?: number;
-//   stops: DriverStop[];
-// };
 
 export interface DriverJob {
   jobId: number;

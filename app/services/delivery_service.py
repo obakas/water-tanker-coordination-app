@@ -63,6 +63,12 @@ def get_request_by_id(db: Session, request_id: int) -> LiquidRequest:
     return request
 
 
+def get_user_by_id(db: Session, user_id: int | None) -> User | None:
+    if not user_id:
+        return None
+    return db.query(User).filter(User.id == user_id).first()
+
+
 # -----------------------------------
 # Helpers
 # -----------------------------------
@@ -80,7 +86,9 @@ def resolve_allowed_actions(delivery: DeliveryRecord) -> list[str]:
         return ["finish_measurement"]
 
     if status == "awaiting_otp":
-        actions = ["confirm_otp"]
+        actions = []
+        if not delivery.otp_verified:
+            actions.append("confirm_otp")
         if delivery.otp_verified:
             actions.append("complete")
         return actions
@@ -96,40 +104,80 @@ def assert_tanker_owns_delivery(tanker_id: int, delivery: DeliveryRecord) -> Non
         )
 
 
-# def get_current_delivery_for_tanker(db: Session, tanker_id: int) -> dict[str, Any]:
-#     tanker = get_tanker_by_id(db, tanker_id)
+def sync_linked_delivery_outcome(
+    db: Session,
+    *,
+    delivery: DeliveryRecord,
+    outcome: str,
+) -> None:
+    now = datetime.utcnow()
 
-#     deliveries = (
-#         db.query(DeliveryRecord)
-#         .filter(
-#             DeliveryRecord.tanker_id == tanker.id,
-#             DeliveryRecord.delivery_status.notin_(list(RESOLVED_DELIVERY_STATUSES)),
-#         )
-#         .order_by(DeliveryRecord.stop_order.asc(), DeliveryRecord.id.asc())
-#         .all()
-#     )
+    if delivery.job_type == "batch" and delivery.member_id:
+        member = get_member_by_id(db, delivery.member_id)
 
-#     if not deliveries:
-#         return {
-#             "tanker_id": tanker.id,
-#             "current_delivery": None,
-#             "remaining_stops": 0,
-#             "allowed_actions": [],
-#             "message": "No active delivery stop found",
-#         }
+        if outcome == "delivered":
+            member.status = "delivered"
+            member.delivered_at = delivery.delivered_at or now
+            member.customer_confirmed = True
+            member.customer_confirmed_at = delivery.customer_confirmed_at or now
+        elif outcome == "failed":
+            member.status = "failed"
+        elif outcome == "skipped":
+            member.status = "skipped"
 
-#     # Prefer a delivery already in progress
-#     current = next(
-#         (d for d in deliveries if d.delivery_status in ACTIVE_PROGRESS_STATUSES),
-#         deliveries[0],
-#     )
+        db.add(member)
 
-#     return {
-#         "tanker_id": tanker.id,
-#         "current_delivery": current,
-#         "remaining_stops": len(deliveries),
-#         "allowed_actions": resolve_allowed_actions(current),
-#     }
+    if delivery.job_type == "priority" and delivery.request_id:
+        request = get_request_by_id(db, delivery.request_id)
+
+        if outcome == "delivered":
+            request.status = "completed"
+            request.completed_at = delivery.delivered_at or now
+        elif outcome == "failed":
+            request.status = "failed"
+        elif outcome == "skipped":
+            request.status = "failed"
+
+        db.add(request)
+
+
+def summarize_resolved_job(deliveries: list[DeliveryRecord]) -> dict[str, int]:
+    statuses = [d.delivery_status for d in deliveries]
+    delivered_count = sum(1 for status in statuses if status == "delivered")
+    failed_count = sum(1 for status in statuses if status == "failed")
+    skipped_count = sum(1 for status in statuses if status == "skipped")
+    total_count = len(statuses)
+
+    return {
+        "total_count": total_count,
+        "delivered_count": delivered_count,
+        "failed_count": failed_count,
+        "skipped_count": skipped_count,
+    }
+
+
+def resolve_job_outcome_status(
+    *,
+    delivered_count: int,
+    failed_count: int,
+    skipped_count: int,
+    total_count: int,
+) -> str:
+    if total_count <= 0:
+        return "pending"
+
+    if delivered_count == total_count:
+        return "completed"
+
+    if delivered_count > 0:
+        return "partially_completed"
+
+    if failed_count + skipped_count == total_count:
+        return "failed"
+
+    return "completed"
+
+
 def get_current_delivery_for_tanker(db: Session, tanker_id: int) -> dict[str, Any]:
     tanker = get_tanker_by_id(db, tanker_id)
 
@@ -219,6 +267,7 @@ def _build_job_meta(
         "remaining_stops": remaining_stops,
     }
 
+
 def _build_stop_summary(db: Session, delivery: DeliveryRecord) -> dict[str, Any]:
     user = get_user_by_id(db, delivery.user_id)
 
@@ -231,6 +280,7 @@ def _build_stop_summary(db: Session, delivery: DeliveryRecord) -> dict[str, Any]
         "planned_liters": delivery.planned_liters,
         "delivery_status": delivery.delivery_status,
     }
+
 
 def _build_stop_details(db: Session, delivery: DeliveryRecord) -> dict[str, Any]:
     return {
@@ -261,6 +311,7 @@ def _build_stop_details(db: Session, delivery: DeliveryRecord) -> dict[str, Any]
         "failure_reason": delivery.failure_reason,
     }
 
+
 def _build_customer_payload(db: Session, delivery: DeliveryRecord) -> dict[str, Any]:
     user = get_user_by_id(db, delivery.user_id)
 
@@ -270,81 +321,6 @@ def _build_customer_payload(db: Session, delivery: DeliveryRecord) -> dict[str, 
         "phone": user.phone if user else None,
         "address": user.address if user else None,
     }
-
-def generate_delivery_code() -> str:
-    return str(random.randint(1000, 9999))
-
-
-def get_delivery_by_id(db: Session, delivery_id: int) -> DeliveryRecord:
-    delivery = db.query(DeliveryRecord).filter(DeliveryRecord.id == delivery_id).first()
-    if not delivery:
-        raise HTTPException(status_code=404, detail="Delivery record not found")
-    return delivery
-
-
-def get_tanker_by_id(db: Session, tanker_id: int) -> Tanker:
-    tanker = db.query(Tanker).filter(Tanker.id == tanker_id).first()
-    if not tanker:
-        raise HTTPException(status_code=404, detail="Tanker not found")
-    return tanker
-
-
-def get_batch_by_id(db: Session, batch_id: int) -> Batch:
-    batch = db.query(Batch).filter(Batch.id == batch_id).first()
-    if not batch:
-        raise HTTPException(status_code=404, detail="Batch not found")
-    return batch
-
-
-def get_member_by_id(db: Session, member_id: int) -> BatchMember:
-    member = db.query(BatchMember).filter(BatchMember.id == member_id).first()
-    if not member:
-        raise HTTPException(status_code=404, detail="Batch member not found")
-    return member
-
-
-def get_request_by_id(db: Session, request_id: int) -> LiquidRequest:
-    request = db.query(LiquidRequest).filter(LiquidRequest.id == request_id).first()
-    if not request:
-        raise HTTPException(status_code=404, detail="Request not found")
-    return request
-
-
-def get_user_by_id(db: Session, user_id: int | None) -> User | None:
-    if not user_id:
-        return None
-    return db.query(User).filter(User.id == user_id).first()
-
-
-def resolve_allowed_actions(delivery: DeliveryRecord) -> list[str]:
-    status = delivery.delivery_status
-
-    if status in {"pending", "en_route"}:
-        return ["arrive"]
-
-    if status == "arrived":
-        return ["start_measurement"]
-
-    if status == "measuring":
-        return ["finish_measurement"]
-
-    if status == "awaiting_otp":
-        actions = []
-        if not delivery.otp_verified:
-            actions.append("confirm_otp")
-        if delivery.otp_verified:
-            actions.append("complete")
-        return actions
-
-    return []
-
-
-def assert_tanker_owns_delivery(tanker_id: int, delivery: DeliveryRecord) -> None:
-    if delivery.tanker_id != tanker_id:
-        raise HTTPException(
-            status_code=403,
-            detail="This tanker is not allowed to operate on this delivery record",
-        )
 
 
 # -----------------------------------
@@ -420,7 +396,6 @@ def create_delivery_records_for_batch(
         db.add(record)
         created.append(record)
 
-        # keep member delivery code aligned
         if not member.delivery_code:
             member.delivery_code = record.delivery_code
             db.add(member)
@@ -660,21 +635,7 @@ def complete_delivery_stop(
     delivery.delivered_at = datetime.utcnow()
 
     db.add(delivery)
-
-    # Sync linked batch member
-    if delivery.job_type == "batch" and delivery.member_id:
-        member = get_member_by_id(db, delivery.member_id)
-        member.status = "delivered"
-        member.delivered_at = delivery.delivered_at
-        member.customer_confirmed = True
-        member.customer_confirmed_at = delivery.customer_confirmed_at or datetime.utcnow()
-        db.add(member)
-
-    # Sync linked priority request
-    if delivery.job_type == "priority" and delivery.request_id:
-        request = get_request_by_id(db, delivery.request_id)
-        request.status = "completed"
-        db.add(request)
+    sync_linked_delivery_outcome(db, delivery=delivery, outcome="delivered")
 
     db.commit()
     db.refresh(delivery)
@@ -711,6 +672,8 @@ def fail_delivery_stop(
     delivery.notes = reason
 
     db.add(delivery)
+    sync_linked_delivery_outcome(db, delivery=delivery, outcome="failed")
+
     db.commit()
     db.refresh(delivery)
 
@@ -744,6 +707,8 @@ def skip_delivery_stop(
     delivery.notes = reason
 
     db.add(delivery)
+    sync_linked_delivery_outcome(db, delivery=delivery, outcome="skipped")
+
     db.commit()
     db.refresh(delivery)
 
@@ -796,7 +761,8 @@ def finalize_job_if_all_stops_resolved(
                 "remaining_unresolved_stops": len(unresolved),
             }
 
-        batch.status = "completed"
+        summary = summarize_resolved_job(deliveries)
+        batch.status = resolve_job_outcome_status(**summary)
         batch.completed_at = datetime.utcnow()
 
         payout_result = trigger_driver_payout(
@@ -804,7 +770,7 @@ def finalize_job_if_all_stops_resolved(
             tanker_id=tanker.id,
             job_type="batch",
             job_id=batch.id,
-            amount=60000.0,  # replace with real rule
+            amount=60000.0,
         )
 
         tanker.status = "available"
@@ -823,6 +789,7 @@ def finalize_job_if_all_stops_resolved(
             "batch_id": batch.id,
             "batch_status": batch.status,
             "tanker_status": tanker.status,
+            "resolution_summary": summary,
             "payout": payout_result,
         }
 
@@ -853,14 +820,17 @@ def finalize_job_if_all_stops_resolved(
                 "remaining_unresolved_stops": len(unresolved),
             }
 
-        request.status = "completed"
+        summary = summarize_resolved_job(deliveries)
+        request.status = resolve_job_outcome_status(**summary)
+        if request.status in {"completed", "partially_completed"}:
+            request.completed_at = datetime.utcnow()
 
         payout_result = trigger_driver_payout(
             db,
             tanker_id=tanker.id,
             job_type="priority",
             job_id=request.id,
-            amount=55000.0,  # replace with real rule
+            amount=55000.0,
         )
 
         tanker.status = "available"
@@ -879,6 +849,7 @@ def finalize_job_if_all_stops_resolved(
             "request_id": request.id,
             "request_status": request.status,
             "tanker_status": tanker.status,
+            "resolution_summary": summary,
             "payout": payout_result,
         }
 

@@ -228,7 +228,7 @@ def should_widen_radius(batch: Batch, members: Iterable[BatchMember]) -> bool:
     - still below near-ready fill ratio
     """
     age_hours = get_batch_age_hours(batch)
-    fill_ratio = calculate_fill_ratio(batch)
+    fill_ratio = calculate_fill_ratio(batch, members)
     # current_volume = getattr(batch, "current_volume", None)
     # target_volume = getattr(batch, "target_volume", None)
     # fill_ratio = current_volume / target_volume if target_volume > 0 else 0

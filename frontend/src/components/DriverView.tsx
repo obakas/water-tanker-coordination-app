@@ -69,6 +69,10 @@ const DriverView = ({ onBack }: DriverViewProps) => {
     setMeterEndReading,
     deliveryNotes,
     setDeliveryNotes,
+    failureReason,
+    setFailureReason,
+    skipReason,
+    setSkipReason,
     isLoading,
     isActionLoading,
     refreshJob,
@@ -79,6 +83,8 @@ const DriverView = ({ onBack }: DriverViewProps) => {
     finishMeasurement,
     verifyOtp,
     completeDelivery,
+    failCurrentStop,
+    skipCurrentStop,
     resetToDashboard,
     activeTab,
     setActiveTab,
@@ -202,12 +208,18 @@ const DriverView = ({ onBack }: DriverViewProps) => {
             setMeterEndReading={setMeterEndReading}
             deliveryNotes={deliveryNotes}
             setDeliveryNotes={setDeliveryNotes}
+            failureReason={failureReason}
+            setFailureReason={setFailureReason}
+            skipReason={skipReason}
+            setSkipReason={setSkipReason}
             isLoading={isActionLoading}
             onMarkArrived={markArrived}
             onBeginMeasurement={beginMeasurement}
             onFinishMeasurement={finishMeasurement}
             onVerifyOtp={verifyOtp}
             onCompleteDelivery={completeDelivery}
+            onFailStop={failCurrentStop}
+            onSkipStop={skipCurrentStop}
             onReset={resetToDashboard}
           />
         );

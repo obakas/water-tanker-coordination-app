@@ -1,10 +1,14 @@
 from __future__ import annotations
+
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Iterable
+
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.batch import Batch
 from app.models.batch_member import BatchMember
+from app.models.request import LiquidRequest
 from app.models.tanker import Tanker
 from app.models.job_offer import JobOffer
 from app.services.driver_scoring_service import (
@@ -21,6 +25,7 @@ from app.services.delivery_service import (
 
 MAX_BATCH_ASSIGNMENT_RADIUS_KM = 2.0
 OFFER_TTL_SECONDS = 60
+MAX_PRIORITY_ASSIGNMENT_RETRIES = 5
 
 
 def get_eligible_tankers(db: Session):
@@ -28,6 +33,8 @@ def get_eligible_tankers(db: Session):
         Tanker.is_available == True,
         Tanker.status == "available",
         Tanker.is_online == True,
+        Tanker.pending_offer_type.is_(None),
+        Tanker.pending_offer_id.is_(None),
     ).all()
 
 
@@ -137,12 +144,113 @@ def mark_offer_timeout(db: Session, offer: JobOffer):
     metric.timeout_count_today += 1
 
 
+def mark_job_completed(db: Session, tanker_id: int, job_type: str, earnings: float = 0.0):
+    metric = get_or_create_metric(db, tanker_id)
+
+    metric.completed_total += 1
+    metric.jobs_completed_today += 1
+    metric.earnings_today += earnings
+    metric.last_completed_at = datetime.utcnow()
+
+    if job_type == "priority":
+        metric.priority_completed_total += 1
+
+
+def get_open_offer_for_tanker(db: Session, tanker_id: int) -> JobOffer | None:
+    return (
+        db.query(JobOffer)
+        .filter(
+            JobOffer.tanker_id == tanker_id,
+            JobOffer.response_type.is_(None),
+        )
+        .order_by(JobOffer.id.desc())
+        .first()
+    )
+
+
+def has_active_offer_for_priority_request(db: Session, request_id: int) -> bool:
+    return (
+        db.query(Tanker)
+        .filter(
+            Tanker.pending_offer_type == "priority",
+            Tanker.pending_offer_id == request_id,
+            Tanker.offer_expires_at.is_not(None),
+        )
+        .first()
+        is not None
+    )
+
+
+def has_active_offer_for_batch(db: Session, batch_id: int) -> bool:
+    return (
+        db.query(Tanker)
+        .filter(
+            Tanker.pending_offer_type == "batch",
+            Tanker.pending_offer_id == batch_id,
+            Tanker.offer_expires_at.is_not(None),
+        )
+        .first()
+        is not None
+    )
+
+
+def clear_tanker_offer(db: Session, tanker: Tanker, *, make_available: bool = True) -> Tanker:
+    tanker.pending_offer_type = None
+    tanker.pending_offer_id = None
+    tanker.offer_expires_at = None
+    if make_available:
+        tanker.status = "available"
+        tanker.is_available = True
+    db.add(tanker)
+    db.flush()
+    return tanker
+
+
+def get_previously_tried_tanker_ids_for_priority_request(db: Session, request_id: int) -> set[int]:
+    rows = (
+        db.query(JobOffer.tanker_id)
+        .filter(
+            JobOffer.job_type == "priority",
+            JobOffer.request_id == request_id,
+        )
+        .all()
+    )
+    return {row[0] for row in rows if row and row[0] is not None}
+
+
+def get_previously_tried_tanker_ids_for_batch(db: Session, batch_id: int) -> set[int]:
+    rows = (
+        db.query(JobOffer.tanker_id)
+        .filter(
+            JobOffer.job_type == "batch",
+            JobOffer.batch_id == batch_id,
+        )
+        .all()
+    )
+    return {row[0] for row in rows if row and row[0] is not None}
+
+
+def _filter_ranked_candidates(
+    ranked: list[tuple[Tanker, Any]],
+    excluded_tanker_ids: Iterable[int] | None = None,
+) -> list[tuple[Tanker, Any]]:
+    excluded = set(excluded_tanker_ids or [])
+    return [(t, b) for t, b in ranked if t.id not in excluded]
+
+
 def assign_best_tanker_for_priority(
     db: Session,
     *,
-    request,
+    request: LiquidRequest,
     offer_limit: int = 5,
+    excluded_tanker_ids: Iterable[int] | None = None,
 ):
+    if request.status in {"completed", "cancelled", "failed"}:
+        return None
+
+    if has_active_offer_for_priority_request(db, request.id):
+        return None
+
     ranked = rank_tankers_for_job(
         db,
         job_lat=request.latitude,
@@ -150,7 +258,7 @@ def assign_best_tanker_for_priority(
         job_type="priority",
     )
 
-    ranked = ranked[:offer_limit]
+    ranked = _filter_ranked_candidates(ranked, excluded_tanker_ids)[:offer_limit]
     if not ranked:
         return None
 
@@ -160,11 +268,12 @@ def assign_best_tanker_for_priority(
     tanker.pending_offer_type = "priority"
     tanker.pending_offer_id = request.id
     tanker.offer_expires_at = datetime.utcnow() + timedelta(seconds=OFFER_TTL_SECONDS)
-
     tanker.status = "available"
     tanker.is_available = False
 
     request.status = "searching_driver"
+    request.last_offer_at = datetime.utcnow()
+    request.assignment_failed_reason = None
 
     offer = create_job_offer(
         db,
@@ -193,21 +302,185 @@ def assign_best_tanker_for_priority(
     }
 
 
-def mark_job_completed(db: Session, tanker_id: int, job_type: str, earnings: float = 0.0):
-    metric = get_or_create_metric(db, tanker_id)
+def retry_priority_assignment(
+    db: Session,
+    request_id: int,
+    *,
+    excluded_tanker_ids: Iterable[int] | None = None,
+    failure_reason: str | None = None,
+):
+    request = db.query(LiquidRequest).filter(LiquidRequest.id == request_id).first()
+    if not request:
+        return {"assigned": False, "reason": "request_not_found", "request_id": request_id}
 
-    metric.completed_total += 1
-    metric.jobs_completed_today += 1
-    metric.earnings_today += earnings
-    metric.last_completed_at = datetime.utcnow()
+    if request.status in {"completed", "cancelled", "failed"}:
+        return {"assigned": False, "reason": f"request_in_terminal_status:{request.status}", "request_id": request.id}
 
-    if job_type == "priority":
-        metric.priority_completed_total += 1
+    if has_active_offer_for_priority_request(db, request.id):
+        return {"assigned": False, "reason": "active_offer_already_exists", "request_id": request.id}
+
+    if request.retry_count >= MAX_PRIORITY_ASSIGNMENT_RETRIES:
+        request.status = "failed"
+        request.assignment_failed_reason = failure_reason or "max_retry_limit_reached"
+        db.add(request)
+        db.commit()
+        db.refresh(request)
+        return {"assigned": False, "reason": "max_retry_limit_reached", "request_id": request.id, "status": request.status}
+
+    tried_ids = get_previously_tried_tanker_ids_for_priority_request(db, request.id)
+    if excluded_tanker_ids:
+        tried_ids.update(excluded_tanker_ids)
+
+    request.retry_count += 1
+    request.status = "searching_driver"
+    db.add(request)
+    db.flush()
+
+    result = assign_best_tanker_for_priority(
+        db,
+        request=request,
+        excluded_tanker_ids=tried_ids,
+    )
+    if result:
+        return {
+            "assigned": True,
+            "request_id": request.id,
+            "retry_count": request.retry_count,
+            "tanker_id": result["tanker"].id,
+            "offer_id": result["offer_id"],
+        }
+
+    if request.retry_count >= MAX_PRIORITY_ASSIGNMENT_RETRIES:
+        request.status = "failed"
+        request.assignment_failed_reason = failure_reason or "no_more_eligible_tankers"
+    else:
+        request.status = "searching_driver"
+        request.assignment_failed_reason = failure_reason or "no_eligible_tankers_available_now"
+
+    db.add(request)
+    db.commit()
+    db.refresh(request)
+    return {
+        "assigned": False,
+        "request_id": request.id,
+        "retry_count": request.retry_count,
+        "status": request.status,
+        "reason": request.assignment_failed_reason,
+    }
+
+
+def retry_batch_assignment(
+    db: Session,
+    batch_id: int,
+    *,
+    excluded_tanker_ids: Iterable[int] | None = None,
+):
+    batch = db.query(Batch).filter(Batch.id == batch_id).first()
+    if not batch:
+        return {"assigned": False, "reason": "batch_not_found", "batch_id": batch_id}
+
+    if batch.status in {"completed", "expired", "cancelled"}:
+        return {"assigned": False, "reason": f"batch_in_terminal_status:{batch.status}", "batch_id": batch.id}
+
+    if has_active_offer_for_batch(db, batch.id):
+        return {"assigned": False, "reason": "active_offer_already_exists", "batch_id": batch.id}
+
+    members = (
+        db.query(BatchMember)
+        .filter(BatchMember.batch_id == batch.id)
+        .all()
+    )
+
+    tried_ids = get_previously_tried_tanker_ids_for_batch(db, batch.id)
+    if excluded_tanker_ids:
+        tried_ids.update(excluded_tanker_ids)
+
+    result = assign_best_tanker_for_batch(
+        db,
+        batch=batch,
+        members=members,
+        excluded_tanker_ids=tried_ids,
+    )
+
+    if result.get("assigned"):
+        return result
+
+    batch.status = "ready_for_assignment"
+    db.add(batch)
+    db.commit()
+    db.refresh(batch)
+    result["batch_id"] = batch.id
+    return result
+
+
+def process_expired_offers(db: Session) -> list[dict[str, Any]]:
+    now = datetime.utcnow()
+    expired_tankers = (
+        db.query(Tanker)
+        .filter(
+            Tanker.pending_offer_type.is_not(None),
+            Tanker.pending_offer_id.is_not(None),
+            Tanker.offer_expires_at.is_not(None),
+            Tanker.offer_expires_at < now,
+        )
+        .all()
+    )
+
+    results: list[dict[str, Any]] = []
+
+    for tanker in expired_tankers:
+        pending_type = tanker.pending_offer_type
+        pending_id = tanker.pending_offer_id
+
+        offer = get_open_offer_for_tanker(db, tanker.id)
+        if offer:
+            mark_offer_timeout(db, offer)
+
+        clear_tanker_offer(db, tanker, make_available=True)
+
+        if pending_type == "priority" and pending_id:
+            retry_result = retry_priority_assignment(
+                db,
+                pending_id,
+                excluded_tanker_ids=[tanker.id],
+                failure_reason="offer_expired",
+            )
+            results.append(
+                {
+                    "tanker_id": tanker.id,
+                    "expired_offer_type": pending_type,
+                    "expired_offer_id": pending_id,
+                    "retry": retry_result,
+                }
+            )
+            continue
+
+        if pending_type == "batch" and pending_id:
+            retry_result = retry_batch_assignment(
+                db,
+                pending_id,
+                excluded_tanker_ids=[tanker.id],
+            )
+            results.append(
+                {
+                    "tanker_id": tanker.id,
+                    "expired_offer_type": pending_type,
+                    "expired_offer_id": pending_id,
+                    "retry": retry_result,
+                }
+            )
+            continue
+
+        db.commit()
+
+    return results
+
 
 def assign_best_tanker_for_batch(
     db: Session,
     batch: Batch,
     members: list[BatchMember],
+    excluded_tanker_ids: Iterable[int] | None = None,
 ) -> dict[str, Any]:
     current_status = str(getattr(batch, "status", "") or "").lower()
     if current_status in {"assigned", "loading", "delivering", "completed"}:
@@ -217,7 +490,18 @@ def assign_best_tanker_for_batch(
             "reason": f"Batch already in status '{current_status}'",
         }
 
-    eligible_tankers = get_eligible_tankers_for_batch(db, batch)
+    if has_active_offer_for_batch(db, batch.id):
+        return {
+            "assigned": False,
+            "batch_id": batch.id,
+            "reason": "Batch already has an active offer",
+        }
+
+    eligible_tankers = get_eligible_tankers_for_batch(
+        db,
+        batch,
+        excluded_tanker_ids=excluded_tanker_ids,
+    )
     if not eligible_tankers:
         return {
             "assigned": False,
@@ -277,24 +561,41 @@ def assign_best_tanker_for_batch(
     }
 
 
-def get_eligible_tankers_for_batch(db: Session, batch: Batch) -> list[Tanker]:
+def get_eligible_tankers_for_batch(
+    db: Session,
+    batch: Batch,
+    excluded_tanker_ids: Iterable[int] | None = None,
+) -> list[Tanker]:
     batch_lat = getattr(batch, "latitude", None)
     batch_lon = getattr(batch, "longitude", None)
     max_radius_km = getattr(batch, "search_radius_km", None) or 8.0
+    excluded = set(excluded_tanker_ids or [])
 
     tankers = db.query(Tanker).all()
     eligible: list[Tanker] = []
 
     for tanker in tankers:
+        if tanker.id in excluded:
+            continue
+
         is_online = bool(getattr(tanker, "is_online", True))
         is_available = bool(getattr(tanker, "is_available", False))
         status = str(getattr(tanker, "status", "") or "").lower()
         paused_until = getattr(tanker, "paused_until", None)
+        pending_offer_type = getattr(tanker, "pending_offer_type", None)
+        pending_offer_id = getattr(tanker, "pending_offer_id", None)
+        current_request_id = getattr(tanker, "current_request_id", None)
 
         if not is_online:
             continue
 
         if not is_available or status != "available":
+            continue
+
+        if pending_offer_type or pending_offer_id:
+            continue
+
+        if current_request_id is not None:
             continue
 
         if paused_until and paused_until > datetime.utcnow():
@@ -320,8 +621,11 @@ def get_eligible_tankers_for_batch(db: Session, batch: Batch) -> list[Tanker]:
 
     return eligible
 
+
+# -------- existing batch ranking helpers remain below --------
 def rank_tankers_for_batch(
     db: Session,
+    *,
     batch: Batch,
     members: list[BatchMember],
     tankers: list[Tanker],
@@ -329,23 +633,19 @@ def rank_tankers_for_batch(
     ranked: list[dict[str, Any]] = []
 
     for tanker in tankers:
-        score_breakdown = score_driver_for_batch(
+        score, breakdown = score_driver_for_batch(
             db=db,
             tanker=tanker,
             batch=batch,
             members=members,
         )
-
         ranked.append(
             {
                 "tanker": tanker,
-                "tanker_id": tanker.id,
-                "score": score_breakdown["final_score"],
-                "breakdown": score_breakdown,
+                "score": score,
+                "breakdown": breakdown,
             }
         )
 
     ranked.sort(key=lambda item: item["score"], reverse=True)
     return ranked
-
-

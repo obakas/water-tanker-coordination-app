@@ -6,7 +6,9 @@ export type ClientStep =
   | "delivery"
   | "arrived"
   | "completed"
-  | "expired";
+  | "expired"
+  | "failed"
+  | "partial";
 
 export type RequestMode = "batch" | "priority";
 

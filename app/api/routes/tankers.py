@@ -13,9 +13,12 @@ from app.models.request import LiquidRequest
 from app.models.tanker import Tanker
 from app.models.user import User
 from app.services.assignment_service import (
+    clear_tanker_offer,
     mark_offer_accepted,
     mark_offer_declined,
     mark_offer_timeout,
+    retry_batch_assignment,
+    retry_priority_assignment,
 )
 from app.services.delivery_service import (
     create_delivery_record_for_priority,
@@ -79,22 +82,32 @@ def get_open_offer_for_tanker(db: Session, tanker: Tanker) -> JobOffer | None:
 
 
 def expire_pending_offer(db: Session, tanker: Tanker) -> None:
+    pending_type = tanker.pending_offer_type
+    pending_id = tanker.pending_offer_id
+
     offer = get_open_offer_for_tanker(db, tanker)
     if offer:
         mark_offer_timeout(db, offer)
 
-    if tanker.pending_offer_type == "priority" and tanker.pending_offer_id:
-        request = db.query(LiquidRequest).filter(
-            LiquidRequest.id == tanker.pending_offer_id
-        ).first()
-        if request and request.status == "searching_driver":
-            request.status = "searching_driver"
+    clear_tanker_offer(db, tanker, make_available=True)
 
-    tanker.pending_offer_type = None
-    tanker.pending_offer_id = None
-    tanker.offer_expires_at = None
-    tanker.is_available = True
-    tanker.status = "available"
+    if pending_type == "priority" and pending_id:
+        retry_priority_assignment(
+            db,
+            pending_id,
+            excluded_tanker_ids=[tanker.id],
+            failure_reason="offer_expired",
+        )
+        return
+
+    if pending_type == "batch" and pending_id:
+        retry_batch_assignment(
+            db,
+            pending_id,
+            excluded_tanker_ids=[tanker.id],
+        )
+        return
+
     db.commit()
 
 
@@ -402,6 +415,8 @@ def accept_offer(tanker_id: int, db: Session = Depends(get_db)):
         tanker.is_available = False
 
         request.status = "loading"
+        request.accepted_at = datetime.utcnow()
+        request.loading_deadline = datetime.utcnow() + timedelta(minutes=LOADING_WINDOW_MINUTES)
 
         tanker.pending_offer_type = None
         tanker.pending_offer_id = None
@@ -418,6 +433,7 @@ def accept_offer(tanker_id: int, db: Session = Depends(get_db)):
             "tanker_id": tanker.id,
             "request_id": request.id,
             "status": tanker.status,
+            "loading_deadline": request.loading_deadline.isoformat() if request.loading_deadline else None,
         }
 
     if tanker.pending_offer_type == "batch":
@@ -458,6 +474,9 @@ def reject_offer(tanker_id: int, db: Session = Depends(get_db)):
     if not tanker.pending_offer_type or not tanker.pending_offer_id:
         raise HTTPException(status_code=404, detail="No pending offer found")
 
+    pending_type = tanker.pending_offer_type
+    pending_id = tanker.pending_offer_id
+
     offer = get_open_offer_for_tanker(db, tanker)
     if offer:
         response_seconds = (datetime.utcnow() - offer.offered_at).total_seconds()
@@ -468,29 +487,35 @@ def reject_offer(tanker_id: int, db: Session = Depends(get_db)):
             response_seconds=response_seconds,
         )
 
-    if tanker.pending_offer_type == "priority":
-        request = db.query(LiquidRequest).filter(LiquidRequest.id == tanker.pending_offer_id).first()
-        if request:
-            request.status = "searching_driver"
+    clear_tanker_offer(db, tanker, make_available=True)
 
-    if tanker.pending_offer_type == "batch":
-        batch = db.query(Batch).filter(Batch.id == tanker.pending_offer_id).first()
-        if batch and batch.status in {"assigned", "loading"}:
+    retry_result = None
+    if pending_type == "priority" and pending_id:
+        retry_result = retry_priority_assignment(
+            db,
+            pending_id,
+            excluded_tanker_ids=[tanker.id],
+            failure_reason="driver_rejected",
+        )
+    elif pending_type == "batch" and pending_id:
+        batch = db.query(Batch).filter(Batch.id == pending_id).first()
+        if batch:
             batch.status = "ready_for_assignment"
             batch.tanker_id = None
-            retry_result = assign_tanker_if_ready(db, batch.id, allow_near_ready=True)
-
-    tanker.pending_offer_type = None
-    tanker.pending_offer_id = None
-    tanker.offer_expires_at = None
-    tanker.status = "available"
-    tanker.is_available = True
-
-    db.commit()
+            db.add(batch)
+            db.flush()
+        retry_result = retry_batch_assignment(
+            db,
+            pending_id,
+            excluded_tanker_ids=[tanker.id],
+        )
+    else:
+        db.commit()
 
     return {
         "message": "Offer rejected successfully",
         "tanker_id": tanker.id,
+        "retry": retry_result,
     }
 
 
@@ -601,6 +626,8 @@ def mark_priority_loaded(tanker_id: int, request_id: int, db: Session = Depends(
     tanker.status = "delivering"
     tanker.is_available = False
     request.status = "delivering"
+    request.loading_deadline = None
+    request.delivering_started_at = datetime.utcnow()
 
     db.commit()
     db.refresh(tanker)

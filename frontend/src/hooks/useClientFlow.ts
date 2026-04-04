@@ -76,10 +76,6 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     refresh: refreshLivePriorityRequest,
   } = useLivePriorityRequest(requestMode === "priority" ? requestId : null, 8000);
 
-
-
-
-
   function resolvePriorityClientStep(
     priorityRequest: ReturnType<typeof useLivePriorityRequest>["request"],
     fallbackStep: ClientStep
@@ -89,6 +85,19 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     const deliveryStatus = priorityRequest.delivery_status;
     const tankerStatus = priorityRequest.tanker_status;
     const requestStatus = priorityRequest.request_status;
+
+    if (
+      requestStatus === "failed" ||
+      requestStatus === "expired" ||
+      deliveryStatus === "failed" ||
+      deliveryStatus === "skipped"
+    ) {
+      return "failed";
+    }
+
+    if (requestStatus === "partially_completed") {
+      return "partial";
+    }
 
     if (
       deliveryStatus === "delivered" ||
@@ -144,17 +153,20 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
       return "completed";
     }
 
+    if (status === "partially_completed") {
+      return "partial";
+    }
+
+    if (status === "failed") {
+      return "failed";
+    }
+
     if (status === "expired") {
       return "expired";
     }
 
     return fallbackStep;
   }
-
-  // const resolvedStep = useMemo(
-  //   () => resolveClientStep(liveBatch, step),
-  //   [liveBatch, step]
-  // );
 
   const resolvedStep = useMemo(() => {
     if (requestMode === "batch") {
@@ -163,8 +175,6 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
 
     return resolvePriorityClientStep(livePriorityRequest, step);
   }, [requestMode, liveBatch, livePriorityRequest, step]);
-
-
 
   const price = useMemo(() => {
     if (requestMode === "priority") {
@@ -184,11 +194,8 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
 
   const canContinueToPayment = useMemo(() => {
     if (!selectedSize) return false;
-
     if (requestMode === "batch") return true;
-
     if (priorityMode === "asap") return true;
-
     return !!scheduledFor;
   }, [selectedSize, requestMode, priorityMode, scheduledFor]);
 
@@ -316,6 +323,23 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     setStep("payment");
   };
 
+  const resetClientFlow = () => {
+    localStorage.removeItem(CLIENT_SESSION_KEY);
+    setStep("request");
+    setSelectedSize(null);
+    setRequestMode("batch");
+    setPriorityMode("asap");
+    setScheduledFor("");
+    setShowHelp(false);
+    setShowLeaveBatchWarning(false);
+    setOtp("");
+    setIsSubmittingRequest(false);
+    setRequestId(null);
+    setBatchId(null);
+    setMemberId(null);
+    setPaymentDeadline(null);
+  };
+
   const handleLogout = () => {
     setCurrentUser(null);
     localStorage.removeItem(USER_KEY);
@@ -349,7 +373,7 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
       return;
     }
 
-    if (resolvedStep === "completed") {
+    if (["completed", "failed", "partial"].includes(resolvedStep)) {
       setStep("delivery");
       return;
     }
@@ -472,23 +496,6 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     }
   };
 
-  const resetClientFlow = () => {
-    localStorage.removeItem(CLIENT_SESSION_KEY);
-    setStep("request");
-    setSelectedSize(null);
-    setRequestMode("batch");
-    setPriorityMode("asap");
-    setScheduledFor("");
-    setShowHelp(false);
-    setShowLeaveBatchWarning(false);
-    setOtp("");
-    setIsSubmittingRequest(false);
-    setRequestId(null);
-    setBatchId(null);
-    setMemberId(null);
-    setPaymentDeadline(null);
-  };
-
   const handleBackClick = () => {
     if (activeTab === "history") {
       setActiveTab("request");
@@ -518,7 +525,11 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
               ? "Delivery"
               : resolvedStep === "expired"
                 ? "Batch Expired"
-                : "Completed";
+                : resolvedStep === "failed"
+                  ? "Delivery Failed"
+                  : resolvedStep === "partial"
+                    ? "Delivery Resolved with Issues"
+                    : "Completed";
 
   const handleDeliveryConfirmed = () => {
     toast.success("Delivery confirmed! Thank you.");
@@ -546,8 +557,6 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     step,
     resolvedStep,
   ]);
-
-
 
   return {
     step: resolvedStep,

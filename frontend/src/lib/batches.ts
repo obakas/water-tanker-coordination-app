@@ -11,6 +11,8 @@ export interface BatchLiveResponse {
   | "delivering"
   | "arrived"
   | "completed"
+  | "partially_completed"
+  | "failed"
   | "expired";
 
   current_volume: number;
@@ -33,6 +35,8 @@ export interface BatchLiveResponse {
   refund_amount?: number | null;
   refunded_at?: string | null;
   refund_reference?: string | null;
+  failure_reason?: string | null;
+  notes?: string | null;
 }
 
 export async function leaveBatchMember(memberId: number) {

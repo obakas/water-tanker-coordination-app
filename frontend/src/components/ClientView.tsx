@@ -6,6 +6,7 @@ import TankerStep from "@/components/client/TankerStep";
 import DeliveryStep from "@/components/client/DeliveryStep";
 import CompletedStep from "@/components/client/CompletedStep";
 import ExpiredBatchStep from "@/components/client/ExpiredBatchStep";
+import DeliveryOutcomeStep from "@/components/client/DeliveryOutcomeStep";
 import HelpModal from "@/components/client/HelpModal";
 import LeaveBatchWarningModal from "@/components/client/LeaveBatchWarningModal";
 import AuthModal from "@/components/client/AuthModal";
@@ -165,6 +166,38 @@ const ClientView = ({ onBack }: ClientViewProps) => {
             scheduledFor={scheduledFor}
             price={price}
             otp={otp}
+            onBackHome={resetClientFlow}
+          />
+        );
+
+      case "failed":
+        return (
+          <DeliveryOutcomeStep
+            status="failed"
+            requestMode={requestMode}
+            selectedSize={selectedSize}
+            price={price}
+            failureReason={livePriorityRequest?.failure_reason ?? liveBatch?.failure_reason ?? liveBatch?.notes}
+            refundEligible={liveBatch?.refund_eligible ?? null}
+            refundStatus={liveBatch?.refund_status ?? null}
+            actualLitersDelivered={livePriorityRequest?.actual_liters_delivered ?? null}
+            plannedLiters={livePriorityRequest?.planned_liters ?? null}
+            onBackHome={resetClientFlow}
+          />
+        );
+
+      case "partial":
+        return (
+          <DeliveryOutcomeStep
+            status="partial"
+            requestMode={requestMode}
+            selectedSize={selectedSize}
+            price={price}
+            failureReason={livePriorityRequest?.failure_reason ?? liveBatch?.failure_reason ?? liveBatch?.notes}
+            refundEligible={liveBatch?.refund_eligible ?? null}
+            refundStatus={liveBatch?.refund_status ?? null}
+            actualLitersDelivered={livePriorityRequest?.actual_liters_delivered ?? null}
+            plannedLiters={livePriorityRequest?.planned_liters ?? null}
             onBackHome={resetClientFlow}
           />
         );

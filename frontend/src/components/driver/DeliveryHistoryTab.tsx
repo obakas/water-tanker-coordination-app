@@ -6,6 +6,10 @@ function formatDate(value: string | null) {
     return new Date(value).toLocaleString();
 }
 
+function prettyStatus(value: string) {
+    return value.replace(/_/g, " ");
+}
+
 interface Props {
     tankerId: number;
 }
@@ -73,7 +77,7 @@ export default function DeliveryHistoryTab({ tankerId }: Props) {
                             </p>
                         </div>
                         <span className="rounded-full border px-3 py-1 text-xs capitalize">
-                            {item.job_status.replace(/_/g, " ")}
+                            {prettyStatus(item.job_status)}
                         </span>
                     </div>
 

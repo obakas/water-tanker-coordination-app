@@ -24,6 +24,12 @@ interface DriverDeliveringStepProps {
   deliveryNotes: string;
   setDeliveryNotes: (value: string) => void;
 
+  failureReason: string;
+  setFailureReason: (value: string) => void;
+
+  skipReason: string;
+  setSkipReason: (value: string) => void;
+
   isLoading: boolean;
 
   onMarkArrived: () => void | Promise<void>;
@@ -31,6 +37,8 @@ interface DriverDeliveringStepProps {
   onFinishMeasurement: () => void | Promise<void>;
   onVerifyOtp: () => void | Promise<void>;
   onCompleteDelivery: () => void | Promise<void>;
+  onFailStop: () => void | Promise<void>;
+  onSkipStop: () => void | Promise<void>;
   onReset: () => void;
 }
 
@@ -50,12 +58,18 @@ export const DriverDeliveringStep = ({
   setMeterEndReading,
   deliveryNotes,
   setDeliveryNotes,
+  failureReason,
+  setFailureReason,
+  skipReason,
+  setSkipReason,
   isLoading,
   onMarkArrived,
   onBeginMeasurement,
   onFinishMeasurement,
   onVerifyOtp,
   onCompleteDelivery,
+  onFailStop,
+  onSkipStop,
   onReset,
 }: DriverDeliveringStepProps) => {
   const canArrive = allowedActions.includes("arrive");
@@ -63,6 +77,8 @@ export const DriverDeliveringStep = ({
   const canFinishMeasurement = allowedActions.includes("finish_measurement");
   const canVerifyOtp = allowedActions.includes("confirm_otp");
   const canComplete = allowedActions.includes("complete");
+  const canFail = allowedActions.includes("fail");
+  const canSkip = allowedActions.includes("skip");
 
   if (allDelivered || !currentDelivery) {
     return (
@@ -74,7 +90,7 @@ export const DriverDeliveringStep = ({
 
           <h2 className="text-2xl font-bold text-foreground">Delivery Completed</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            All stops for this job have been resolved successfully.
+            All available stops for this job have been resolved. No hanging stops. No ghost drama.
           </p>
 
           <div className="mt-6">
@@ -156,7 +172,7 @@ export const DriverDeliveringStep = ({
         <div>
           <h3 className="text-lg font-semibold text-foreground">Delivery Actions</h3>
           <p className="text-sm text-muted-foreground mt-1">
-            Follow the stop flow in order: arrive, measurement, OTP, then complete.
+            Follow the stop flow in order: arrive, measurement, OTP, then complete. If real life misbehaves, fail or skip the stop with a reason.
           </p>
         </div>
 
@@ -280,11 +296,51 @@ export const DriverDeliveringStep = ({
           </div>
         ) : null}
 
+        {canFail ? (
+          <div className="rounded-xl border border-destructive/20 p-4 space-y-3">
+            <h4 className="font-medium text-foreground">Fail Stop</h4>
+            <p className="text-sm text-muted-foreground">
+              Use this when the customer is absent or the stop cannot be completed.
+            </p>
+            <textarea
+              value={failureReason}
+              onChange={(e) => setFailureReason(e.target.value)}
+              placeholder="Why did this stop fail?"
+              rows={3}
+              className="w-full rounded-xl border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+            />
+            <Button variant="outline" onClick={onFailStop} disabled={isLoading}>
+              {isLoading ? "Processing..." : "Mark Stop Failed"}
+            </Button>
+          </div>
+        ) : null}
+
+        {canSkip ? (
+          <div className="rounded-xl border p-4 space-y-3">
+            <h4 className="font-medium text-foreground">Skip Stop</h4>
+            <p className="text-sm text-muted-foreground">
+              Use this when you must move on but still need a recorded reason.
+            </p>
+            <textarea
+              value={skipReason}
+              onChange={(e) => setSkipReason(e.target.value)}
+              placeholder="Why are you skipping this stop?"
+              rows={3}
+              className="w-full rounded-xl border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+            />
+            <Button variant="outline" onClick={onSkipStop} disabled={isLoading}>
+              {isLoading ? "Processing..." : "Skip Stop"}
+            </Button>
+          </div>
+        ) : null}
+
         {!canArrive &&
         !canStartMeasurement &&
         !canFinishMeasurement &&
         !canVerifyOtp &&
-        !canComplete ? (
+        !canComplete &&
+        !canFail &&
+        !canSkip ? (
           <div className="rounded-xl border border-dashed p-4">
             <div className="flex items-start gap-3">
               <AlertTriangle className="mt-0.5 h-5 w-5 text-muted-foreground" />

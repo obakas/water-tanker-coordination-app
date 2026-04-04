@@ -45,6 +45,10 @@ const getBatchHeadline = (status?: string) => {
             return "Your tanker has arrived";
         case "completed":
             return "Your batch delivery is complete";
+        case "partially_completed":
+            return "Your batch finished with some issues";
+        case "failed":
+            return "This batch delivery failed";
         case "expired":
             return "This batch expired";
         default:
@@ -70,6 +74,10 @@ const getBatchSubtext = (status?: string) => {
             return "Please share your OTP with the driver after water measurement is complete.";
         case "completed":
             return "This delivery has been completed successfully.";
+        case "partially_completed":
+            return "The batch was resolved, but not every stop completed successfully.";
+        case "failed":
+            return "This batch could not be completed successfully.";
         case "expired":
             return "This batch could not be completed in time.";
         default:
@@ -78,7 +86,7 @@ const getBatchSubtext = (status?: string) => {
 };
 
 const canViewTanker = (status?: string) => {
-    return ["assigned", "loading", "delivering", "arrived", "completed"].includes(
+    return ["assigned", "loading", "delivering", "arrived", "completed", "partially_completed", "failed"].includes(
         status ?? ""
     );
 };

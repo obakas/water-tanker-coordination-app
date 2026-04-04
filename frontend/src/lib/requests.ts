@@ -4,7 +4,17 @@ const API_BASE_URL =
 export interface PriorityLiveResponse {
   request_id: number;
   delivery_type: "priority";
-  request_status: string;
+  request_status:
+    | "searching_driver"
+    | "assigned"
+    | "loading"
+    | "delivering"
+    | "arrived"
+    | "completed"
+    | "partially_completed"
+    | "failed"
+    | "expired"
+    | string;
 
   is_asap: boolean;
   scheduled_for: string | null;

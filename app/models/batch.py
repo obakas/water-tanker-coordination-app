@@ -1,6 +1,9 @@
+from datetime import datetime
+
 from sqlalchemy import Column, String, Integer, Float, ForeignKey, DateTime
 
 from app.core.database import Base
+
 
 class Batch(Base):
     __tablename__ = "batches"
@@ -23,6 +26,8 @@ class Batch(Base):
     loading_deadline = Column(DateTime, nullable=True)
     delivering_started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     search_radius_km = Column(Float, default=1.0)
     expires_at = Column(DateTime, nullable=True)

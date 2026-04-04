@@ -6,7 +6,24 @@ function formatDate(value: string | null) {
     return new Date(value).toLocaleString();
 }
 
+function prettyStatus(value: string | null | undefined) {
+    if (!value) return "—";
+    return value.replace(/_/g, " ");
+}
+
 function statusLabel(item: ClientHistoryItem) {
+    if (item.request_status === "partially_completed") {
+        return "Partially completed";
+    }
+
+    if (item.request_status === "failed" || item.delivery_status === "failed") {
+        return "Failed";
+    }
+
+    if (item.delivery_status === "skipped") {
+        return "Skipped";
+    }
+
     if (item.delivery_status === "delivered" || item.request_status === "completed") {
         return "Delivered";
     }
@@ -23,10 +40,10 @@ function statusLabel(item: ClientHistoryItem) {
     }
 
     if (item.delivery_type === "batch" && item.batch_status) {
-        return item.batch_status.split("_").join(" ");
+        return prettyStatus(item.batch_status);
     }
 
-    return item.request_status.split("_").join(" ");
+    return prettyStatus(item.request_status);
 }
 
 interface Props {
@@ -114,15 +131,23 @@ export default function OrderHistoryTab({ userId }: Props) {
                             <p className="text-muted-foreground">Delivered</p>
                             <p>{item.actual_liters_delivered ?? item.planned_liters ?? "—"}L</p>
                         </div>
+                        <div>
+                            <p className="text-muted-foreground">Request Status</p>
+                            <p>{prettyStatus(item.request_status)}</p>
+                        </div>
+                        <div>
+                            <p className="text-muted-foreground">Delivery Status</p>
+                            <p>{prettyStatus(item.delivery_status)}</p>
+                        </div>
                         {item.delivery_type === "batch" && (
                             <>
                                 <div>
                                     <p className="text-muted-foreground">Payment</p>
-                                    <p>{item.payment_status || "—"}</p>
+                                    <p>{prettyStatus(item.payment_status)}</p>
                                 </div>
                                 <div>
                                     <p className="text-muted-foreground">Refund</p>
-                                    <p>{item.refund_status || "—"}</p>
+                                    <p>{prettyStatus(item.refund_status)}</p>
                                 </div>
                             </>
                         )}

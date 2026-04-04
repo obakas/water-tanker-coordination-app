@@ -1,10 +1,11 @@
 from collections import defaultdict
+
 from sqlalchemy.orm import Session
 
-from app.models.request import LiquidRequest
-from app.models.batch_member import BatchMember
 from app.models.batch import Batch
+from app.models.batch_member import BatchMember
 from app.models.DeliveryRecord import DeliveryRecord
+from app.models.request import LiquidRequest
 from app.models.tanker import Tanker
 from app.models.user import User
 
@@ -46,38 +47,68 @@ def get_user_history(db: Session, user_id: int):
         elif batch and batch.tanker_id:
             tanker = db.query(Tanker).filter(Tanker.id == batch.tanker_id).first()
 
-        items.append({
-            "request_id": request.id,
-            "delivery_type": request.delivery_type,
-            "request_status": request.status,
-            "volume_liters": request.volume_liters,
-            "created_at": getattr(request, "created_at", None),
-            "completed_at": request.completed_at,
-
-            "batch_id": member.batch_id if member else None,
-            "member_id": member.id if member else None,
-            "batch_status": batch.status if batch else None,
-            "member_status": member.status if member else None,
-            "payment_status": member.payment_status if member else None,
-            "refund_status": member.refund_status if member else None,
-            "amount_paid": member.amount_paid if member else None,
-
-            "tanker_id": tanker.id if tanker else None,
-            "driver_name": tanker.driver_name if tanker else None,
-
-            "delivery_id": delivery.id if delivery else None,
-            "delivery_status": delivery.delivery_status if delivery else None,
-            "planned_liters": delivery.planned_liters if delivery else None,
-            "actual_liters_delivered": delivery.actual_liters_delivered if delivery else None,
-            "otp_verified": delivery.otp_verified if delivery else None,
-            "delivered_at": delivery.delivered_at if delivery else None,
-        })
+        items.append(
+            {
+                "request_id": request.id,
+                "delivery_type": request.delivery_type,
+                "request_status": request.status,
+                "volume_liters": request.volume_liters,
+                "created_at": getattr(request, "created_at", None),
+                "completed_at": request.completed_at,
+                "batch_id": member.batch_id if member else None,
+                "member_id": member.id if member else None,
+                "batch_status": batch.status if batch else None,
+                "member_status": member.status if member else None,
+                "payment_status": member.payment_status if member else None,
+                "refund_status": member.refund_status if member else None,
+                "amount_paid": member.amount_paid if member else None,
+                "tanker_id": tanker.id if tanker else None,
+                "driver_name": tanker.driver_name if tanker else None,
+                "delivery_id": delivery.id if delivery else None,
+                "delivery_status": delivery.delivery_status if delivery else None,
+                "planned_liters": delivery.planned_liters if delivery else None,
+                "actual_liters_delivered": (
+                    delivery.actual_liters_delivered if delivery else None
+                ),
+                "otp_verified": delivery.otp_verified if delivery else None,
+                "delivered_at": delivery.delivered_at if delivery else None,
+            }
+        )
 
     return {
         "user_id": user_id,
         "total": len(items),
         "items": items,
     }
+
+
+def _resolve_parent_job_status(
+    db: Session,
+    *,
+    job_type: str,
+    job_id: int | None,
+    delivered_stops: int,
+    failed_stops: int,
+    skipped_stops: int,
+    total_stops: int,
+) -> str:
+    if job_type == "batch" and job_id:
+        batch = db.query(Batch).filter(Batch.id == job_id).first()
+        if batch and batch.status:
+            return batch.status
+
+    if job_type == "priority" and job_id:
+        request = db.query(LiquidRequest).filter(LiquidRequest.id == job_id).first()
+        if request and request.status:
+            return request.status
+
+    if delivered_stops == total_stops and total_stops > 0:
+        return "completed"
+    if delivered_stops > 0:
+        return "partially_completed"
+    if failed_stops + skipped_stops == total_stops and total_stops > 0:
+        return "failed"
+    return "closed"
 
 
 def get_tanker_history(db: Session, tanker_id: int):
@@ -102,7 +133,9 @@ def get_tanker_history(db: Session, tanker_id: int):
         skipped_stops = sum(1 for r in records if r.delivery_status == "skipped")
 
         total_planned_liters = sum(float(r.planned_liters or 0) for r in records)
-        total_actual_liters_delivered = sum(float(r.actual_liters_delivered or 0) for r in records)
+        total_actual_liters_delivered = sum(
+            float(r.actual_liters_delivered or 0) for r in records
+        )
 
         started_candidates = [r.dispatched_at for r in records if r.dispatched_at]
         completed_candidates = [r.delivered_at for r in records if r.delivered_at]
@@ -119,35 +152,41 @@ def get_tanker_history(db: Session, tanker_id: int):
                     customer_name = user.name
                     customer_phone = user.phone
 
-        if delivered_stops == total_stops and total_stops > 0:
-            job_status = "completed"
-        elif delivered_stops > 0:
-            job_status = "partially_completed"
-        elif failed_stops == total_stops and total_stops > 0:
-            job_status = "failed"
-        else:
-            job_status = "closed"
+        job_status = _resolve_parent_job_status(
+            db,
+            job_type=job_type,
+            job_id=job_id,
+            delivered_stops=delivered_stops,
+            failed_stops=failed_stops,
+            skipped_stops=skipped_stops,
+            total_stops=total_stops,
+        )
 
-        items.append({
-            "job_type": job_type,
-            "job_id": job_id,
-            "tanker_id": tanker_id,
-            "tanker_status": None,
-            "total_stops": total_stops,
-            "delivered_stops": delivered_stops,
-            "failed_stops": failed_stops,
-            "skipped_stops": skipped_stops,
-            "total_planned_liters": total_planned_liters,
-            "total_actual_liters_delivered": total_actual_liters_delivered,
-            "started_at": min(started_candidates) if started_candidates else None,
-            "completed_at": max(completed_candidates) if completed_candidates else None,
-            "last_updated_at": max(updated_candidates) if updated_candidates else None,
-            "job_status": job_status,
-            "customer_name": customer_name,
-            "customer_phone": customer_phone,
-        })
+        items.append(
+            {
+                "job_type": job_type,
+                "job_id": job_id,
+                "tanker_id": tanker_id,
+                "tanker_status": None,
+                "total_stops": total_stops,
+                "delivered_stops": delivered_stops,
+                "failed_stops": failed_stops,
+                "skipped_stops": skipped_stops,
+                "total_planned_liters": total_planned_liters,
+                "total_actual_liters_delivered": total_actual_liters_delivered,
+                "started_at": min(started_candidates) if started_candidates else None,
+                "completed_at": max(completed_candidates) if completed_candidates else None,
+                "last_updated_at": max(updated_candidates) if updated_candidates else None,
+                "job_status": job_status,
+                "customer_name": customer_name,
+                "customer_phone": customer_phone,
+            }
+        )
 
-    items.sort(key=lambda x: x["last_updated_at"] or x["completed_at"] or x["started_at"], reverse=True)
+    items.sort(
+        key=lambda x: x["last_updated_at"] or x["completed_at"] or x["started_at"],
+        reverse=True,
+    )
 
     return {
         "tanker_id": tanker_id,
