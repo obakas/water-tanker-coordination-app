@@ -165,6 +165,8 @@ export const useDriverFlow = (driver: DriverUser | null) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isActionLoading, setIsActionLoading] = useState(false);
 
+  const [activeTab, setActiveTab] = useState<"dashboard" | "history">("dashboard");
+
   const [otpInput, setOtpInput] = useState("");
   const [meterStartReading, setMeterStartReading] = useState("");
   const [meterEndReading, setMeterEndReading] = useState("");
@@ -199,7 +201,7 @@ export const useDriverFlow = (driver: DriverUser | null) => {
 
     const job = jobResult.status === "fulfilled" ? jobResult.value : null;
     const stop = stopResult.status === "fulfilled" ? stopResult.value : null;
-
+    
     setIncomingOffer(offer);
     setJobResponse(job);
     setStopResponse(stop);
@@ -702,5 +704,8 @@ export const useDriverFlow = (driver: DriverUser | null) => {
     skipCurrentStop,
 
     resetToDashboard,
+
+    activeTab, 
+    setActiveTab
   };
 };

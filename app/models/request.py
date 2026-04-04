@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy import Column, Integer, Float, ForeignKey, String, DateTime, Boolean
 from app.core.database import Base
 
@@ -22,3 +24,6 @@ class LiquidRequest(Base):
     loading_deadline = Column(DateTime, nullable=True)
     accepted_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

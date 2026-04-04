@@ -12,6 +12,7 @@ import AuthModal from "@/components/client/AuthModal";
 import ThemeToggle from "@/components/ui/ThemeToggle";
 import { useClientFlow } from "@/hooks/useClientFlow";
 import type { ClientViewProps } from "@/types/client";
+import OrderHistoryTab from "@/components/client/OrderHistoryTab";
 
 const ClientView = ({ onBack }: ClientViewProps) => {
   const {
@@ -68,75 +69,15 @@ const ClientView = ({ onBack }: ClientViewProps) => {
     livePriorityLoading,
     livePriorityError,
     refreshLivePriorityRequest,
+
+    activeTab,
+    setActiveTab,
   } = useClientFlow({ onBack });
 
-  return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-40 border-b border-border bg-card/80 backdrop-blur-md">
-        <div className="flex h-14 items-center justify-between px-4">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleBackClick}
-              className={`text-foreground ${step === "batch" ? "text-red-500" : ""
-                }`}
-              aria-label="Go back"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </button>
-
-            <h1 className="text-lg font-bold text-foreground">{pageTitle}</h1>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {currentUser ? (
-              <>
-                <div className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2">
-                  <UserCircle2 className="h-4 w-4 text-muted-foreground" />
-                  <div className="leading-tight">
-                    <p className="text-sm font-medium text-foreground">
-                      {currentUser.name}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {currentUser.phone}
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  onClick={handleLogout}
-                  className="flex items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm hover:bg-muted"
-                  aria-label="Log out"
-                >
-                  <LogOut className="h-4 w-4" />
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={() => {
-                  setAuthMode("login");
-                  setShowAuthModal(true);
-                }}
-                className="rounded-xl border border-border px-3 py-2 text-sm hover:bg-muted"
-              >
-                Sign In
-              </button>
-            )}
-
-            <button
-              onClick={() => setShowHelp(true)}
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-foreground transition-colors hover:border-primary/30"
-              aria-label="Open help"
-            >
-              <CircleHelp className="h-4.5 w-4.5" />
-            </button>
-
-            <ThemeToggle />
-          </div>
-        </div>
-      </header>
-
-      <div className="mx-auto max-w-md p-5">
-        {step === "request" && (
+  const renderLiveStep = () => {
+    switch (step) {
+      case "request":
+        return (
           <RequestStep
             requestMode={requestMode}
             selectedSize={selectedSize}
@@ -150,9 +91,10 @@ const ClientView = ({ onBack }: ClientViewProps) => {
             onContinue={handleContinueToPayment}
             onCancel={handleCancelBeforePayment}
           />
-        )}
+        );
 
-        {step === "payment" && (
+      case "payment":
+        return (
           <PaymentStep
             price={price}
             selectedSize={selectedSize}
@@ -163,9 +105,10 @@ const ClientView = ({ onBack }: ClientViewProps) => {
             onCancel={handleCancelBeforePayment}
             isLoading={isSubmittingRequest}
           />
-        )}
+        );
 
-        {step === "batch" && (
+      case "batch":
+        return (
           <BatchStep
             otp={otp}
             selectedSize={selectedSize}
@@ -180,9 +123,10 @@ const ClientView = ({ onBack }: ClientViewProps) => {
             liveBatchLoading={liveBatchLoading}
             liveBatchError={liveBatchError}
           />
-        )}
+        );
 
-        {step === "tanker" && (
+      case "tanker":
+        return (
           <TankerStep
             requestMode={requestMode}
             priorityMode={priorityMode}
@@ -197,9 +141,10 @@ const ClientView = ({ onBack }: ClientViewProps) => {
             livePriorityError={livePriorityError}
             refreshLivePriorityRequest={refreshLivePriorityRequest}
           />
-        )}
+        );
 
-        {step === "delivery" && (
+      case "delivery":
+        return (
           <DeliveryStep
             requestMode={requestMode}
             otp={otp}
@@ -209,9 +154,10 @@ const ClientView = ({ onBack }: ClientViewProps) => {
             livePriorityLoading={livePriorityLoading}
             livePriorityError={livePriorityError}
           />
-        )}
+        );
 
-        {step === "completed" && (
+      case "completed":
+        return (
           <CompletedStep
             selectedSize={selectedSize}
             requestMode={requestMode}
@@ -221,17 +167,122 @@ const ClientView = ({ onBack }: ClientViewProps) => {
             otp={otp}
             onBackHome={resetClientFlow}
           />
-        )}
+        );
 
-        {step === "expired" && (
+      case "expired":
+        return (
           <ExpiredBatchStep
             liveBatch={liveBatch}
             memberId={memberId}
             onBackHome={resetClientFlow}
             refreshLiveBatch={refreshLiveBatch}
           />
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-background">
+      <header className="sticky top-0 z-40 border-b border-border bg-card/80 backdrop-blur-md">
+        <div className="px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleBackClick}
+                className={`text-foreground ${step === "batch" ? "text-red-500" : ""}`}
+                aria-label="Go back"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+
+              <h1 className="text-lg font-bold text-foreground">
+                {activeTab === "history" ? "Order History" : pageTitle}
+              </h1>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {currentUser ? (
+                <>
+                  <div className="hidden sm:flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2">
+                    <UserCircle2 className="h-4 w-4 text-muted-foreground" />
+                    <div className="leading-tight">
+                      <p className="text-sm font-medium text-foreground">
+                        {currentUser.name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {currentUser.phone}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleLogout}
+                    className="flex items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm hover:bg-muted"
+                    aria-label="Log out"
+                  >
+                    <LogOut className="h-4 w-4" />
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => {
+                    setAuthMode("login");
+                    setShowAuthModal(true);
+                  }}
+                  className="rounded-xl border border-border px-3 py-2 text-sm hover:bg-muted"
+                >
+                  Sign In
+                </button>
+              )}
+
+              <button
+                onClick={() => setShowHelp(true)}
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-foreground transition-colors hover:border-primary/30"
+                aria-label="Open help"
+              >
+                <CircleHelp className="h-4.5 w-4.5" />
+              </button>
+
+              <ThemeToggle />
+            </div>
+          </div>
+
+          <div className="mt-3">
+            <div className="grid grid-cols-2 rounded-2xl border bg-background p-1">
+              <button
+                onClick={() => setActiveTab("request")}
+                className={`rounded-xl px-4 py-2 text-sm font-medium transition ${activeTab === "request"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-foreground"
+                  }`}
+              >
+                New Order
+              </button>
+              <button
+                onClick={() => setActiveTab("history")}
+                className={`rounded-xl px-4 py-2 text-sm font-medium transition ${activeTab === "history"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-foreground"
+                  }`}
+                disabled={!currentUser}
+              >
+                Order History
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-md p-5">
+        {activeTab === "history" && currentUser ? (
+          <OrderHistoryTab userId={currentUser.id} />
+        ) : (
+          renderLiveStep()
         )}
-      </div>
+      </main>
 
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
 

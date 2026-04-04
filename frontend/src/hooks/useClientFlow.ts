@@ -61,7 +61,7 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
   const [currentUser, setCurrentUser] = useState<UserResponse | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("signup");
-
+  const [activeTab, setActiveTab] = useState<"request" | "history">("request");
   const {
     batch: liveBatch,
     isLoading: liveBatchLoading,
@@ -490,6 +490,11 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
   };
 
   const handleBackClick = () => {
+    if (activeTab === "history") {
+      setActiveTab("request");
+      return;
+    }
+
     if (resolvedStep === "batch") {
       setShowLeaveBatchWarning(true);
       return;
@@ -541,6 +546,8 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     step,
     resolvedStep,
   ]);
+
+
 
   return {
     step: resolvedStep,
@@ -604,5 +611,8 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     livePriorityLoading,
     livePriorityError,
     refreshLivePriorityRequest,
+
+    activeTab,
+    setActiveTab,
   };
 };

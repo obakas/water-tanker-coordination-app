@@ -15,7 +15,7 @@ from app.core.scheduler import start_scheduler, stop_scheduler
 
 # from app.models import user, batch, request, payment, tanker
 
-from app.api.routes import requests, batches, tankers, payments, auth, users, batches, batch_members, refunds, deliveries
+from app.api.routes import requests, batches, tankers, payments, auth, users, batches, batch_members, refunds, deliveries, histories
 
 app = FastAPI()
 
@@ -58,4 +58,5 @@ app.include_router(batches.router)
 app.include_router(batch_members.router)
 app.include_router(refunds.router)
 app.include_router(deliveries.router)
+app.include_router(histories.router)
 
