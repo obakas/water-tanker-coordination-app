@@ -28,7 +28,6 @@ def build_next_action_hint(status: str, remaining_volume: float) -> str:
     return "Batch updated."
 
 
-# def get_batch_live_snapshot(db: Session, batch_id: int) 
 def get_batch_live_snapshot(db: Session, batch_id: int, member_id: int | None = None) -> dict:
     batch = get_batch_by_id(db, batch_id)
     if not batch:
@@ -42,21 +41,14 @@ def get_batch_live_snapshot(db: Session, batch_id: int, member_id: int | None = 
         if not member:
             raise ValueError(f"Member {member_id} not found in batch {batch_id}")
 
-    # active_members = [m for m in members if getattr(m, "is_active", True)]
     active_members = [
-    m for m in members
-    if getattr(m, "status", None) == "active"
-    and getattr(m, "payment_status", None) == "paid"
-]
-
-    # paid_members = [
-    #     m for m in members
-    #     if getattr(m, "payment_status", None) == "paid"
-    # ]
+        m for m in members
+        if getattr(m, "status", None) == "active"
+        and getattr(m, "payment_status", None) == "paid"
+    ]
 
     tanker = getattr(batch, "tanker", None)
     if tanker is None and getattr(batch, "tanker_id", None):
-        # optional fallback if relationship isn't loaded
         from app.models.tanker import Tanker
         tanker = db.query(Tanker).filter(Tanker.id == batch.tanker_id).first()
 
@@ -79,11 +71,24 @@ def get_batch_live_snapshot(db: Session, batch_id: int, member_id: int | None = 
         "target_volume": target_volume,
         "progress_percent": progress_percent,
         "member_count": len(active_members),
+
         "tanker_id": tanker.id if tanker else None,
         "driver_name": tanker.driver_name if tanker else None,
+        "tanker_status": tanker.status if tanker else None,
+        "tanker_phone": tanker.phone if tanker else None,
+        "tanker_latitude": tanker.latitude if tanker else None,
+        "tanker_longitude": tanker.longitude if tanker else None,
+        "last_location_update_at": tanker.last_location_update_at if tanker else None,
+
+        # for client-side map: use the logged-in member's own stop if available
+        "customer_latitude": getattr(member, "latitude", None) if member else None,
+        "customer_longitude": getattr(member, "longitude", None) if member else None,
+
         "otp": getattr(member, "delivery_code", None) if member else None,
-        # "is_member_active": getattr(member, "is_active", None) if member else None,
-        "is_member_active": (getattr(member, "status", None) == "active"and getattr(member, "payment_status", None) == "paid") if member else None,
+        "is_member_active": (
+            getattr(member, "status", None) == "active"
+            and getattr(member, "payment_status", None) == "paid"
+        ) if member else None,
         "refund_eligible": refund_eligible,
         "member_id": member.id if member else None,
         "member_status": getattr(member, "status", None) if member else None,

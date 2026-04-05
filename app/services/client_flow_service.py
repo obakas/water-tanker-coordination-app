@@ -21,22 +21,11 @@ from app.models.DeliveryRecord import DeliveryRecord
 from app.models.tanker import Tanker
 
 
-
-
-
-
-
 def get_priority_request_live_flow(db: Session, request_id: int) -> dict[str, Any]:
     request = get_request_by_id(db, request_id)
 
     if request.delivery_type != "priority":
         raise HTTPException(status_code=400, detail="Request is not a priority request")
-
-    # tanker = (
-    #     db.query(Tanker)
-    #     .filter(Tanker.current_request_id == request.id)
-    #     .first()
-    # )
 
     delivery = (
         db.query(DeliveryRecord)
@@ -74,6 +63,12 @@ def get_priority_request_live_flow(db: Session, request_id: int) -> dict[str, An
         "driver_name": tanker.driver_name if tanker else None,
         "tanker_phone": tanker.phone if tanker else None,
         "tanker_status": tanker.status if tanker else None,
+        "tanker_latitude": tanker.latitude if tanker else None,
+        "tanker_longitude": tanker.longitude if tanker else None,
+        "last_location_update_at": tanker.last_location_update_at.isoformat() if tanker and tanker.last_location_update_at else None,
+
+        "customer_latitude": request.latitude,
+        "customer_longitude": request.longitude,
 
         "delivery_id": delivery.id if delivery else None,
         "delivery_status": delivery.delivery_status if delivery else None,
@@ -138,7 +133,6 @@ def create_batch_request_flow(db: Session, data: RequestCreate) -> dict[str, Any
         "member_status": payment_result.get("member_status"),
         "delivery_code": payment_result.get("delivery_code"),
         "batch_snapshot": payment_result.get("batch_snapshot"),
-        # "batch_status": batch.status,
     }
 
 

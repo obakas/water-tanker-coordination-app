@@ -43,6 +43,15 @@ class BatchLiveResponse(BaseModel):
 
     tanker_id: Optional[int] = None
     driver_name: Optional[str] = None
+    tanker_status: Optional[str] = None
+    tanker_phone: Optional[str] = None
+
+    tanker_latitude: Optional[float] = None
+    tanker_longitude: Optional[float] = None
+    last_location_update_at: Optional[datetime.datetime] = None
+
+    customer_latitude: Optional[float] = None
+    customer_longitude: Optional[float] = None
 
     otp: Optional[str] = None
     is_member_active: Optional[bool] = None

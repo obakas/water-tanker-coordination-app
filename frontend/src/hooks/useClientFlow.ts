@@ -41,6 +41,27 @@ interface RequestResponseWithOtp {
 const CLIENT_SESSION_KEY = "water_client_session";
 const USER_KEY = "water_user";
 
+const ABUJA_ASOKORO_FALLBACK = { latitude: 9.0580, longitude: 7.5233 };
+
+async function getClientCoordinates(): Promise<{ latitude: number; longitude: number }> {
+  if (typeof window === "undefined" || !navigator.geolocation) {
+    return ABUJA_ASOKORO_FALLBACK;
+  }
+
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        });
+      },
+      () => resolve(ABUJA_ASOKORO_FALLBACK),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+    );
+  });
+}
+
 export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
   const [step, setStep] = useState<ClientStep>("request");
   const [selectedSize, setSelectedSize] = useState<number | null>(null);
@@ -408,12 +429,14 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     try {
       setIsSubmittingRequest(true);
 
+      const coords = await getClientCoordinates();
+
       const payload = {
         user_id: currentUser.id,
         liquid_id: 1,
         volume_liters: selectedSize,
-        latitude: 6.5244,
-        longitude: 3.3792,
+        latitude: coords.latitude,
+        longitude: coords.longitude,
         delivery_type: requestMode,
         ...(requestMode === "priority"
           ? priorityMode === "asap"
@@ -429,7 +452,7 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
       const nextRequestId = response.request_id ?? null;
       const nextBatchId = response.batch_id ?? null;
       const nextMemberId = response.member_id ?? null;
-      const nextPaymentDeadline = response.payment_deadline ?? null;
+      const nextPaymentDeadline = response.payment_status === "paid" ? null : response.payment_deadline ?? null;
       const nextOtp = response.delivery_code ?? "";
 
       setRequestId(nextRequestId);

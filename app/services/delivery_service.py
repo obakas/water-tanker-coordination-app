@@ -12,6 +12,7 @@ from app.models.batch import Batch
 from app.models.batch_member import BatchMember
 from app.models.request import LiquidRequest
 from app.models.tanker import Tanker
+from app.models.user import User
 from app.utils.status_rules import ensure_valid_transition, TANKER_STATUS_TRANSITIONS
 
 OTP_WINDOW_MINUTES = 15
@@ -254,7 +255,7 @@ def _get_job_stops(db: Session, delivery: DeliveryRecord) -> list[DeliveryRecord
 def _allowed_action_list(delivery: DeliveryRecord) -> list[str]:
     status = delivery.delivery_status
     actions: list[str] = []
-    if status in {"pending", "en_route"}:
+    if status == "en_route" or (status == "pending" and bool(delivery.dispatched_at)):
         actions.append("arrive")
     if status == "arrived":
         actions.append("start_measurement")
@@ -373,12 +374,34 @@ def _finalize_job_if_possible(db: Session, delivery: DeliveryRecord) -> dict[str
 
 def get_current_delivery_for_tanker(db: Session, tanker_id: int) -> dict[str, Any]:
     tanker = get_tanker_by_id(db, tanker_id)
+
+    if getattr(tanker, "status", None) not in {"delivering", "arrived"}:
+        return {
+            "tanker": {
+                "id": tanker.id,
+                "driver_name": getattr(tanker, "driver_name", ""),
+                "phone": getattr(tanker, "phone", ""),
+                "tank_plate_number": getattr(tanker, "tank_plate_number", ""),
+                "status": getattr(tanker, "status", None),
+                "is_available": getattr(tanker, "is_available", False),
+            },
+            "job": None,
+            "current_stop": None,
+            "allowed_actions": [],
+            "stops_summary": [],
+            "message": "No active stop found",
+        }
+
     current = (
         db.query(DeliveryRecord)
-        .filter(DeliveryRecord.tanker_id == tanker_id, DeliveryRecord.delivery_status.in_(list(ACTIVE_STOP_STATUSES)))
+        .filter(
+            DeliveryRecord.tanker_id == tanker_id,
+            DeliveryRecord.delivery_status.in_(list(ACTIVE_STOP_STATUSES)),
+        )
         .order_by(DeliveryRecord.stop_order.asc(), DeliveryRecord.id.asc())
         .first()
     )
+
     if not current:
         return {
             "tanker": {
@@ -395,6 +418,20 @@ def get_current_delivery_for_tanker(db: Session, tanker_id: int) -> dict[str, An
             "stops_summary": [],
             "message": "No active stop found",
         }
+
+    user = None
+    if current.user_id:
+        user = db.query(User).filter(User.id == current.user_id).first()
+
+    customer_name = "Customer"
+    customer_phone = None
+    customer_address = None
+
+    if user:
+        customer_name = getattr(user, "name", None) or "Customer"
+        customer_phone = getattr(user, "phone", None)
+        customer_address = getattr(user, "address", None)
+
     return {
         "tanker": {
             "id": tanker.id,
@@ -417,8 +454,16 @@ def get_current_delivery_for_tanker(db: Session, tanker_id: int) -> dict[str, An
             "otp_verified": current.otp_verified,
             "delivery_code": current.delivery_code,
             "customer_confirmed": current.customer_confirmed,
-            "customer": {"user_id": current.user_id, "name": None, "phone": None, "address": None},
-            "location": {"latitude": current.latitude, "longitude": current.longitude},
+            "customer": {
+                "user_id": current.user_id,
+                "name": customer_name,
+                "phone": customer_phone,
+                "address": customer_address,
+            },
+            "location": {
+                "latitude": current.latitude,
+                "longitude": current.longitude,
+            },
             "timestamps": {
                 "dispatched_at": current.dispatched_at,
                 "arrived_at": current.arrived_at,
@@ -481,10 +526,19 @@ def start_measurement(db: Session, *, tanker_id: int, delivery_id: int, meter_st
     delivery.anomaly_reason = None
     delivery.customer_confirmed = False
     delivery.customer_confirmed_at = None
+    # tanker = get_tanker_by_id(db, tanker_id)
+    # if tanker.status != "delivering":
+    #     ensure_valid_transition(tanker.status, "delivering", TANKER_STATUS_TRANSITIONS, "Tanker")
+    #     tanker.status = "delivering"
     tanker = get_tanker_by_id(db, tanker_id)
-    if tanker.status != "delivering":
-        ensure_valid_transition(tanker.status, "delivering", TANKER_STATUS_TRANSITIONS, "Tanker")
-        tanker.status = "delivering"
+    if tanker.status == "delivering":
+        ensure_valid_transition(tanker.status, "arrived", TANKER_STATUS_TRANSITIONS, "Tanker")
+        tanker.status = "arrived"
+    elif tanker.status != "arrived":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tanker must be at the stop before measurement can begin. Current tanker status: '{tanker.status}'",
+        )
     db.add(delivery)
     db.add(tanker)
     db.commit()

@@ -13,6 +13,7 @@ class Tanker(Base):
 
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
+    last_location_update_at = Column(DateTime, nullable=True)
 
     status = Column(String, default="available", nullable=False)
     is_available = Column(Boolean, default=True, nullable=False)
@@ -21,7 +22,7 @@ class Tanker(Base):
     paused_until = Column(DateTime, nullable=True)
     is_online = Column(Boolean, default=True, nullable=False)
 
-    # NEW: pending offer fields
+    # pending offer fields
     pending_offer_type = Column(String, nullable=True)      # "priority" or "batch"
     pending_offer_id = Column(Integer, nullable=True)       # request_id or batch_id
     offer_expires_at = Column(DateTime, nullable=True)

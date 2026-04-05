@@ -155,7 +155,7 @@ export default function BatchStep({
                     </div>
                 </div>
 
-                {paymentDeadline && (
+                {paymentDeadline && liveBatch?.member_payment_status !== "paid" && (
                     <div className="mt-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100">
                         <Clock3 className="mt-0.5 h-4 w-4 shrink-0" />
                         <div className="text-sm">

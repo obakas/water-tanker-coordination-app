@@ -8,8 +8,10 @@ import {
   fetchIncomingOffer,
   acceptIncomingOffer,
   rejectIncomingOffer,
-  acceptDriverBatch,
-  acceptDriverPriority,
+  // acceptDriverBatch,
+  // acceptDriverPriority,
+  startDriverBatchLoading,
+  startDriverPriorityLoading,
   markDriverBatchLoaded,
   markDriverPriorityLoaded,
   arriveAtStop,
@@ -23,6 +25,7 @@ import {
   type DriverCurrentStopResponse,
   type IncomingDriverOffer,
 } from "@/lib/driverApi";
+import { useDriverLocationHeartbeat } from "./useDriverLocationHeartbeat";
 
 function mapJobResponseToDriverJob(
   response: DriverCurrentJobResponse | null
@@ -49,10 +52,11 @@ function mapJobResponseToDriverJob(
     return {
       jobId: activeJob.batch_id ?? 0,
       jobType: "batch",
-      status:
-        response.tanker_status === "available"
-          ? "assigned"
-          : (response.tanker_status as DriverJob["status"]),
+      // status:
+      //   response.tanker_status === "available"
+      //     ? "assigned"
+      //     : (response.tanker_status as DriverJob["status"]),
+      status: response.tanker_status as DriverJob["status"],
       liquidName: undefined,
       totalVolumeLiters:
         activeJob.total_volume ??
@@ -77,10 +81,11 @@ function mapJobResponseToDriverJob(
   return {
     jobId: activeJob.request_id ?? 0,
     jobType: "priority",
-    status:
-      response.tanker_status === "available"
-        ? "assigned"
-        : (response.tanker_status as DriverJob["status"]),
+    // status:
+    //   response.tanker_status === "available"
+    //     ? "assigned"
+    //     : (response.tanker_status as DriverJob["status"]),
+    status: response.tanker_status as DriverJob["status"],
     liquidName: undefined,
     totalVolumeLiters: customer?.volume_liters ?? activeJob.total_volume ?? 0,
     stops: [priorityStop],
@@ -102,9 +107,10 @@ function mergeStopsWithCurrentStop(
 
   return baseStops.map((stop, index) => {
     const matchesCurrent =
-      stop.id === currentStop.delivery_id ||
       index + 1 === currentStop.stop_order ||
-      stop.phone === currentStop.customer.phone;
+      (!!stop.phone &&
+        !!currentStop.customer.phone &&
+        stop.phone === currentStop.customer.phone);
 
     if (!matchesCurrent) {
       return stop;
@@ -128,11 +134,17 @@ function getStepFromState(
   driver: DriverUser | null,
   jobResponse: DriverCurrentJobResponse | null,
   stopResponse: DriverCurrentStopResponse | null,
-  hadActiveStop: boolean
+  hadActiveStop: boolean,
+  incomingOffer: IncomingDriverOffer | null
 ): DriverStep {
   if (!driver) return "offline";
 
-  const tankerStatus = stopResponse?.tanker?.status ?? jobResponse?.tanker_status;
+  if (incomingOffer) {
+    return "assigned";
+  }
+
+  const tankerStatus =
+    stopResponse?.tanker?.status ?? jobResponse?.tanker_status ?? null;
 
   if (!jobResponse?.active_job && !stopResponse?.current_stop) {
     return hadActiveStop ? "completed" : "available";
@@ -176,7 +188,7 @@ export const useDriverFlow = (driver: DriverUser | null) => {
 
   const [hadActiveStop, setHadActiveStop] = useState(false);
 
-  const tankerId = driver?.tankerId;
+  const tankerId = driver?.tankerId ?? null;
 
   const refreshJob = useCallback(async () => {
     if (!tankerId) {
@@ -201,7 +213,7 @@ export const useDriverFlow = (driver: DriverUser | null) => {
 
     const job = jobResult.status === "fulfilled" ? jobResult.value : null;
     const stop = stopResult.status === "fulfilled" ? stopResult.value : null;
-    
+
     setIncomingOffer(offer);
     setJobResponse(job);
     setStopResponse(stop);
@@ -274,9 +286,88 @@ export const useDriverFlow = (driver: DriverUser | null) => {
     return deliveries.length > 0 && deliveredCount === deliveries.length;
   }, [stopResponse, deliveries, deliveredCount]);
 
+  // const step: DriverStep = useMemo(() => {
+  //   return getStepFromState(driver, jobResponse, stopResponse, hadActiveStop);
+  // }, [driver, jobResponse, stopResponse, hadActiveStop]);
+
   const step: DriverStep = useMemo(() => {
-    return getStepFromState(driver, jobResponse, stopResponse, hadActiveStop);
-  }, [driver, jobResponse, stopResponse, hadActiveStop]);
+    return getStepFromState(
+      driver,
+      jobResponse,
+      stopResponse,
+      hadActiveStop,
+      incomingOffer
+    );
+  }, [driver, jobResponse, stopResponse, hadActiveStop, incomingOffer]);
+
+  const shouldSendLocation = useMemo(() => {
+    if (!tankerId) return false;
+
+    const tankerStatus = stopResponse?.tanker?.status ?? jobResponse?.tanker_status;
+
+    return (
+      tankerStatus === "assigned" ||
+      tankerStatus === "loading" ||
+      tankerStatus === "delivering" ||
+      tankerStatus === "arrived"
+    );
+  }, [tankerId, stopResponse, jobResponse]);
+
+  const nextInstruction = useMemo(() => {
+    if (!driver) return "Log in to continue.";
+
+    if (incomingOffer) {
+      return "You have a new delivery offer. Accept or reject it.";
+    }
+
+    const tankerStatus =
+      stopResponse?.tanker?.status ?? jobResponse?.tanker_status ?? null;
+
+    if (!jobResponse?.active_job && !currentStop) {
+      return "You are available. Waiting for the next delivery offer.";
+    }
+
+    if (currentStop) {
+      if (allowedActions.includes("arrive")) {
+        return "Drive to the customer and mark arrival.";
+      }
+      if (allowedActions.includes("start_measurement")) {
+        return "Start water measurement for this stop.";
+      }
+      if (allowedActions.includes("finish_measurement")) {
+        return "Finish measurement and prepare for OTP.";
+      }
+      if (allowedActions.includes("confirm_otp")) {
+        return "Collect and verify the customer's OTP.";
+      }
+      if (allowedActions.includes("complete")) {
+        return "Complete this delivery stop.";
+      }
+      if (allowedActions.includes("fail")) {
+        return "If the stop cannot be completed, fail it with a reason.";
+      }
+    }
+
+    if (tankerStatus === "assigned") {
+      return "Start loading water now.";
+    }
+
+    if (tankerStatus === "loading") {
+      return "Finish loading and mark the tanker as loaded.";
+    }
+
+    if (tankerStatus === "delivering" || tankerStatus === "arrived") {
+      return "Continue the active stop.";
+    }
+
+    return "Refresh to sync the latest driver state.";
+  }, [driver, incomingOffer, stopResponse, jobResponse, currentStop, allowedActions]);
+
+  useDriverLocationHeartbeat({
+    tankerId,
+    enabled: shouldSendLocation,
+    intervalMs: 8000,
+  });
 
   const resetInputs = useCallback(() => {
     setOtpInput("");
@@ -328,7 +419,7 @@ export const useDriverFlow = (driver: DriverUser | null) => {
 
     await runAction(
       async () => {
-        await acceptIncomingOffer(tankerId);
+        await acceptIncomingOffer(tankerId, incomingOffer);
       },
       "Offer accepted successfully."
     );
@@ -353,19 +444,19 @@ export const useDriverFlow = (driver: DriverUser | null) => {
     );
   }, [tankerId, incomingOffer, runAction]);
 
-  const acceptJob = useCallback(async () => {
+  const startLoading = useCallback(async () => {
     if (!tankerId) {
       toast.error("Please log in as a driver first.");
       return;
     }
 
-    if (incomingOffer) {
-      await acceptOffer();
+    if (!jobResponse?.active_job || !jobResponse.assignment_type) {
+      toast.error("No active assigned job found.");
       return;
     }
 
-    if (!jobResponse?.active_job || !jobResponse.assignment_type) {
-      toast.error("No active job found.");
+    if (jobResponse.tanker_status !== "assigned") {
+      toast.error("This job is not ready for loading yet.");
       return;
     }
 
@@ -378,9 +469,9 @@ export const useDriverFlow = (driver: DriverUser | null) => {
 
       await runAction(
         async () => {
-          await acceptDriverBatch(tankerId, batchId);
+          await startDriverBatchLoading(tankerId, batchId);
         },
-        "Batch accepted successfully."
+        "Loading started. Fill the tanker before delivery."
       );
 
       return;
@@ -394,11 +485,11 @@ export const useDriverFlow = (driver: DriverUser | null) => {
 
     await runAction(
       async () => {
-        await acceptDriverPriority(tankerId, requestId);
+        await startDriverPriorityLoading(tankerId, requestId);
       },
-      "Priority request accepted successfully."
+      "Loading started. Fill the tanker before delivery."
     );
-  }, [tankerId, incomingOffer, acceptOffer, jobResponse, runAction]);
+  }, [tankerId, jobResponse, runAction]);
 
   const markLoaded = useCallback(async () => {
     if (!tankerId) {
@@ -412,7 +503,7 @@ export const useDriverFlow = (driver: DriverUser | null) => {
     }
 
     if (jobResponse.tanker_status !== "loading") {
-      toast.error("Job is not in loading state.");
+      toast.error("You must start loading before you can mark water as loaded.");
       return;
     }
 
@@ -427,7 +518,7 @@ export const useDriverFlow = (driver: DriverUser | null) => {
         async () => {
           await markDriverBatchLoaded(tankerId, batchId);
         },
-        "Water loaded. Delivery is now in progress."
+        "Water loaded. Head to the customer now."
       );
 
       return;
@@ -443,7 +534,7 @@ export const useDriverFlow = (driver: DriverUser | null) => {
       async () => {
         await markDriverPriorityLoaded(tankerId, requestId);
       },
-      "Water loaded. Delivery is now in progress."
+      "Water loaded. Head to the customer now."
     );
   }, [tankerId, jobResponse, runAction]);
 
@@ -673,6 +764,7 @@ export const useDriverFlow = (driver: DriverUser | null) => {
     stopResponse,
     currentStop,
     allowedActions,
+    shouldSendLocation,
 
     otpInput,
     setOtpInput,
@@ -692,7 +784,7 @@ export const useDriverFlow = (driver: DriverUser | null) => {
     isActionLoading,
 
     refreshJob,
-    acceptJob,
+    // acceptJob,
     markLoaded,
 
     markArrived,
@@ -705,7 +797,10 @@ export const useDriverFlow = (driver: DriverUser | null) => {
 
     resetToDashboard,
 
-    activeTab, 
-    setActiveTab
+    activeTab,
+    setActiveTab,
+
+    nextInstruction,
+    startLoading,
   };
 };

@@ -42,6 +42,56 @@ function StateBridgeCard({
   );
 }
 
+function NextStepCard({
+  title,
+  message,
+  primaryLabel,
+  onPrimary,
+  secondaryLabel = "Refresh",
+  onSecondary,
+  isLoading,
+}: {
+  title: string;
+  message: string;
+  primaryLabel: string;
+  onPrimary: () => void | Promise<void>;
+  secondaryLabel?: string;
+  onSecondary?: () => void | Promise<void>;
+  isLoading: boolean;
+}) {
+  return (
+    <div className="rounded-2xl border bg-card p-5 shadow-sm space-y-4">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Next step
+        </p>
+        <h2 className="mt-1 text-xl font-bold text-foreground">{title}</h2>
+        <p className="mt-2 text-sm text-muted-foreground">{message}</p>
+      </div>
+
+      <div className="flex gap-3">
+        <button
+          className="inline-flex h-11 items-center justify-center rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-60"
+          onClick={onPrimary}
+          disabled={isLoading}
+        >
+          {isLoading ? "Please wait..." : primaryLabel}
+        </button>
+
+        {onSecondary && (
+          <button
+            className="inline-flex h-11 items-center justify-center rounded-xl border px-4 text-sm font-medium disabled:opacity-60"
+            onClick={onSecondary}
+            disabled={isLoading}
+          >
+            {secondaryLabel}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const DriverView = ({ onBack }: DriverViewProps) => {
   const [showHelp, setShowHelp] = useState(false);
 
@@ -76,7 +126,7 @@ const DriverView = ({ onBack }: DriverViewProps) => {
     isLoading,
     isActionLoading,
     refreshJob,
-    acceptJob,
+    // acceptJob,
     markLoaded,
     markArrived,
     beginMeasurement,
@@ -88,6 +138,8 @@ const DriverView = ({ onBack }: DriverViewProps) => {
     resetToDashboard,
     activeTab,
     setActiveTab,
+    startLoading,
+    nextInstruction,
   } = useDriverFlow(driver);
 
   const renderDashboard = () => {
@@ -119,7 +171,7 @@ const DriverView = ({ onBack }: DriverViewProps) => {
             job={activeJob}
             isLoading={isActionLoading}
             onRefresh={refreshJob}
-            onAcceptJob={acceptJob}
+            onAcceptJob={acceptOffer}
             batchId={activeJob?.jobId || null}
           />
         );
@@ -137,15 +189,18 @@ const DriverView = ({ onBack }: DriverViewProps) => {
         }
 
         return (
-          <DriverAvailableStep
-            job={activeJob}
+          <NextStepCard
+            title="Start loading water"
+            message={
+              nextInstruction ||
+              "You already accepted this offer. Start loading water now."
+            }
+            primaryLabel="Start Loading"
+            onPrimary={startLoading}
+            onSecondary={refreshJob}
             isLoading={isActionLoading}
-            onRefresh={refreshJob}
-            onAcceptJob={acceptJob}
-            batchId={activeJob?.jobId || null}
           />
         );
-
       case "loading":
         if (!activeJob) {
           return (
@@ -162,10 +217,10 @@ const DriverView = ({ onBack }: DriverViewProps) => {
           <div className="space-y-4">
             <div className="rounded-2xl border bg-card p-4 shadow-sm">
               <p className="text-sm font-medium text-foreground">
-                Fill the tanker first.
+                Load the tanker now.
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
-                {jobResponse?.message ||
+                {jobResponse?.message || nextInstruction ||
                   "You have up to 90 minutes to load water, then confirm the tanker is ready."}
               </p>
             </div>
@@ -278,21 +333,19 @@ const DriverView = ({ onBack }: DriverViewProps) => {
         <div className="grid grid-cols-2 rounded-2xl border bg-card p-1">
           <button
             onClick={() => setActiveTab("dashboard")}
-            className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
-              activeTab === "dashboard"
-                ? "bg-primary text-primary-foreground"
-                : "text-foreground"
-            }`}
+            className={`rounded-xl px-4 py-2 text-sm font-medium transition ${activeTab === "dashboard"
+              ? "bg-primary text-primary-foreground"
+              : "text-foreground"
+              }`}
           >
             Dashboard
           </button>
           <button
             onClick={() => setActiveTab("history")}
-            className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
-              activeTab === "history"
-                ? "bg-primary text-primary-foreground"
-                : "text-foreground"
-            }`}
+            className={`rounded-xl px-4 py-2 text-sm font-medium transition ${activeTab === "history"
+              ? "bg-primary text-primary-foreground"
+              : "text-foreground"
+              }`}
           >
             Delivery History
           </button>

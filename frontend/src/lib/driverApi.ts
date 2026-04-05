@@ -24,9 +24,9 @@ async function apiRequest<T>(
   if (!response.ok) {
     const message =
       typeof payload === "object" &&
-      payload !== null &&
-      "detail" in payload &&
-      typeof (payload as { detail?: unknown }).detail === "string"
+        payload !== null &&
+        "detail" in payload &&
+        typeof (payload as { detail?: unknown }).detail === "string"
         ? (payload as { detail: string }).detail
         : `Request failed: ${response.status}`;
 
@@ -34,6 +34,25 @@ async function apiRequest<T>(
   }
 
   return payload as T;
+}
+
+
+/* =========================
+   DRIVER LOCATION ENDPOINTS
+========================= */
+
+export async function updateDriverLocation(
+  tankerId: number,
+  payload: { latitude: number; longitude: number }
+) {
+  return apiRequest(`/tankers/${tankerId}/location`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getDriverLocation(tankerId: number) {
+  return apiRequest(`/tankers/${tankerId}/location`);
 }
 
 /* =========================
@@ -264,8 +283,20 @@ export async function fetchIncomingOffer(
   );
 }
 
+// export async function acceptIncomingOffer(
+//   tankerId: number
+// ): Promise<DriverActionResponse> {
+//   return apiRequest<DriverActionResponse>(
+//     `/tankers/${tankerId}/offers/accept`,
+//     {
+//       method: "POST",
+//     }
+//   );
+// }
+
 export async function acceptIncomingOffer(
-  tankerId: number
+  tankerId: number,
+  _offer?: IncomingDriverOffer
 ): Promise<DriverActionResponse> {
   return apiRequest<DriverActionResponse>(
     `/tankers/${tankerId}/offers/accept`,
@@ -286,6 +317,8 @@ export async function rejectIncomingOffer(
   );
 }
 
+
+
 /* =========================
    JOB-LEVEL ENDPOINTS
 ========================= */
@@ -298,7 +331,11 @@ export async function fetchCurrentDriverJob(
   );
 }
 
-export async function acceptDriverBatch(
+/**
+ * Legacy backend endpoints, but in the UI they really mean:
+ * "move assigned job into loading state"
+ */
+export async function startDriverBatchLoading(
   tankerId: number,
   batchId: number
 ): Promise<DriverActionResponse> {
@@ -310,7 +347,7 @@ export async function acceptDriverBatch(
   );
 }
 
-export async function acceptDriverPriority(
+export async function startDriverPriorityLoading(
   tankerId: number,
   requestId: number
 ): Promise<DriverActionResponse> {

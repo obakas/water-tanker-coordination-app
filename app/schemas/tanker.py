@@ -1,4 +1,6 @@
+from datetime import datetime
 from typing import Optional, Literal
+
 from pydantic import BaseModel, field_validator
 
 
@@ -38,11 +40,29 @@ class TankerUpdate(BaseModel):
     longitude: Optional[float] = None
 
 
+class TankerLocationUpdate(BaseModel):
+    latitude: float
+    longitude: float
+
+
+class TankerLocationOut(BaseModel):
+    tanker_id: int
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    last_location_update_at: Optional[datetime] = None
+    tanker_status: str
+    is_available: bool
+
+    class Config:
+        from_attributes = True
+
+
 class TankerOut(TankerBase):
     id: int
     status: TankerStatus
     is_available: bool
     current_request_id: Optional[int] = None
+    last_location_update_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

@@ -12,7 +12,7 @@ from app.models.job_offer import JobOffer
 from app.models.request import LiquidRequest
 from app.models.tanker import Tanker
 from app.models.user import User
-from app.schemas.tanker import TankerCreate, TankerOut, TankerUpdate
+from app.schemas.tanker import TankerCreate, TankerOut, TankerUpdate, TankerLocationUpdate,TankerLocationOut
 from app.services.assignment_service import (
     clear_tanker_offer,
     mark_offer_accepted,
@@ -32,15 +32,64 @@ router = APIRouter(prefix="/tankers", tags=["Tankers"])
 OFFER_TTL_SECONDS = 60
 LOADING_WINDOW_MINUTES = 90
 ACTIVE_JOB_BATCH_STATUSES = {"assigned", "loading", "delivering", "arrived"}
-ACTIVE_JOB_REQUEST_STATUSES = {"loading", "delivering", "arrived"}
+ACTIVE_JOB_REQUEST_STATUSES = {"assigned", "loading", "delivering", "arrived"}
 RESOLVED_DELIVERY_STATUSES = {"delivered", "failed", "skipped"}
 
+
+
+@router.post("/{tanker_id}/location", response_model=TankerLocationOut)
+def update_tanker_location(
+    tanker_id: int,
+    payload: TankerLocationUpdate,
+    db: Session = Depends(get_db),
+):
+    tanker = get_tanker_or_404(db, tanker_id)
+
+    tanker.latitude = payload.latitude
+    tanker.longitude = payload.longitude
+    tanker.last_location_update_at = datetime.utcnow()
+
+    db.add(tanker)
+    db.commit()
+    db.refresh(tanker)
+
+    return {
+        "tanker_id": tanker.id,
+        "latitude": tanker.latitude,
+        "longitude": tanker.longitude,
+        "last_location_update_at": tanker.last_location_update_at,
+        "tanker_status": tanker.status,
+        "is_available": tanker.is_available,
+    }
+
+
+@router.get("/{tanker_id}/location", response_model=TankerLocationOut)
+def get_tanker_location(tanker_id: int, db: Session = Depends(get_db)):
+    tanker = get_tanker_or_404(db, tanker_id)
+    return {
+        "tanker_id": tanker.id,
+        "latitude": tanker.latitude,
+        "longitude": tanker.longitude,
+        "last_location_update_at": tanker.last_location_update_at,
+        "tanker_status": tanker.status,
+        "is_available": tanker.is_available,
+    }
 
 def get_tanker_or_404(db: Session, tanker_id: int) -> Tanker:
     tanker = db.query(Tanker).filter(Tanker.id == tanker_id).first()
     if not tanker:
         raise HTTPException(status_code=404, detail="Tanker not found")
     return tanker
+
+def build_tanker_location_payload(tanker: Tanker) -> dict[str, Any]:
+    return {
+        "tanker_id": tanker.id,
+        "latitude": tanker.latitude,
+        "longitude": tanker.longitude,
+        "last_location_update_at": tanker.last_location_update_at,
+        "tanker_status": tanker.status,
+        "is_available": tanker.is_available,
+    }
 
 
 def get_user_or_none(db: Session, user_id: int | None) -> User | None:
@@ -167,7 +216,7 @@ def ensure_batch_delivery_records(db: Session, batch_id: int, tanker_id: int) ->
     return create_delivery_records_for_batch(db, batch_id=batch_id, tanker_id=tanker_id)
 
 
-def move_first_open_delivery_to_en_route(db: Session, tanker_id: int, *, batch_id: int | None = None, request_id: int | None = None) -> DeliveryRecord | None:
+def move_first_open_delivery_to_en_route(db: Session, tanker_id: int, *, batch_id: int | None = None, request_id: int | None = None, commit: bool = True) -> DeliveryRecord | None:
     query = db.query(DeliveryRecord).filter(DeliveryRecord.tanker_id == tanker_id, DeliveryRecord.delivery_status.notin_(list(RESOLVED_DELIVERY_STATUSES)))
     if batch_id is not None:
         query = query.filter(DeliveryRecord.batch_id == batch_id)
@@ -178,8 +227,10 @@ def move_first_open_delivery_to_en_route(db: Session, tanker_id: int, *, batch_i
         return None
     if delivery.delivery_status == "pending":
         delivery.delivery_status = "en_route"
+    if not delivery.dispatched_at:
         delivery.dispatched_at = datetime.utcnow()
-        db.add(delivery)
+    db.add(delivery)
+    if commit:
         db.commit()
         db.refresh(delivery)
     return delivery
@@ -226,10 +277,33 @@ def build_current_job_response(db: Session, tanker: Tanker) -> dict[str, Any]:
     if batch:
         members = build_batch_members_payload(db, batch.id)
         total_volume = int(sum(member["volume_liters"] for member in members)) if members else int(batch.current_volume or 0)
+
+        current_stop = None
+        open_delivery = (
+            db.query(DeliveryRecord)
+            .filter(
+                DeliveryRecord.tanker_id == tanker.id,
+                DeliveryRecord.batch_id == batch.id,
+                DeliveryRecord.delivery_status.notin_(list(RESOLVED_DELIVERY_STATUSES)),
+            )
+            .order_by(DeliveryRecord.stop_order.asc(), DeliveryRecord.id.asc())
+            .first()
+        )
+        if open_delivery:
+            current_stop = {
+                "delivery_id": open_delivery.id,
+                "member_id": open_delivery.batch_member_id,
+                "latitude": open_delivery.latitude,
+                "longitude": open_delivery.longitude,
+                "delivery_status": open_delivery.delivery_status,
+                "stop_order": open_delivery.stop_order,
+            }
+
         return {
             "tanker_id": tanker.id,
             "tanker_status": tanker.status,
             "tanker_available": tanker.is_available,
+            "tanker_location": build_tanker_location_payload(tanker),
             "assignment_type": "batch",
             "active_job": {
                 "batch_id": batch.id,
@@ -238,16 +312,27 @@ def build_current_job_response(db: Session, tanker: Tanker) -> dict[str, Any]:
                 "total_stops": len(members),
                 "total_volume": total_volume,
                 "members": members,
+                "current_stop": current_stop,
             },
             "message": "Job in progress.",
         }
+
     request = get_active_priority_for_tanker(db, tanker)
     if request:
-        delivery_record = db.query(DeliveryRecord).filter(DeliveryRecord.job_type == "priority", DeliveryRecord.request_id == request.id).first()
+        delivery_record = (
+            db.query(DeliveryRecord)
+            .filter(
+                DeliveryRecord.job_type == "priority",
+                DeliveryRecord.request_id == request.id,
+            )
+            .first()
+        )
+
         return {
             "tanker_id": tanker.id,
             "tanker_status": tanker.status,
             "tanker_available": tanker.is_available,
+            "tanker_location": build_tanker_location_payload(tanker),
             "assignment_type": "priority",
             "active_job": {
                 "request_id": request.id,
@@ -256,10 +341,25 @@ def build_current_job_response(db: Session, tanker: Tanker) -> dict[str, Any]:
                 "total_stops": 1,
                 "total_volume": request.volume_liters,
                 "customer": build_priority_customer_payload(db, request, delivery_record),
+                "current_stop": {
+                    "delivery_id": delivery_record.id if delivery_record else None,
+                    "latitude": request.latitude,
+                    "longitude": request.longitude,
+                    "delivery_status": delivery_record.delivery_status if delivery_record else None,
+                },
             },
             "message": "Job in progress.",
         }
-    return {"tanker_id": tanker.id, "tanker_status": tanker.status, "tanker_available": tanker.is_available, "assignment_type": None, "active_job": None, "message": "No active job found"}
+
+    return {
+        "tanker_id": tanker.id,
+        "tanker_status": tanker.status,
+        "tanker_available": tanker.is_available,
+        "tanker_location": build_tanker_location_payload(tanker),
+        "assignment_type": None,
+        "active_job": None,
+        "message": "No active job found",
+    }
 
 
 @router.get("/{tanker_id}/incoming-offer")
@@ -289,73 +389,105 @@ def get_incoming_offer(tanker_id: int, db: Session = Depends(get_db)):
 @router.post("/{tanker_id}/offers/accept")
 def accept_offer(tanker_id: int, db: Session = Depends(get_db)):
     tanker = get_tanker_or_404(db, tanker_id)
-    # idempotent replay: no pending offer but already in active job
+
     active_batch = get_active_batch_for_tanker(db, tanker)
     active_request = get_active_priority_for_tanker(db, tanker)
+
     if not tanker.pending_offer_type or not tanker.pending_offer_id or not tanker.offer_expires_at:
         if active_batch or active_request:
             current = build_current_job_response(db, tanker)
             return {"message": "Offer already accepted", **current}
         raise HTTPException(status_code=404, detail="No pending offer found")
+
     if tanker.offer_expires_at <= datetime.utcnow():
         expire_pending_offer(db, tanker)
         raise HTTPException(status_code=400, detail="Offer has expired")
+
     offer = get_open_offer_for_tanker(db, tanker)
     if offer:
         response_seconds = (datetime.utcnow() - offer.offered_at).total_seconds()
         mark_offer_accepted(db, offer, response_seconds=response_seconds)
+
     if tanker.pending_offer_type == "priority":
         request = get_request_or_404(db, tanker.pending_offer_id)
         ensure_one_active_job_rule(db, tanker, expected_request_id=request.id)
-        if tanker.current_request_id == request.id and request.status == "loading":
+
+        # idempotent replay
+        if tanker.current_request_id == request.id and tanker.status in {"assigned", "loading", "delivering", "arrived"}:
             clear_tanker_offer(db, tanker, make_available=False)
             db.commit()
             return {
-                "message": "Offer already accepted. Go load water and confirm when the tanker is ready.",
+                "message": "Offer already accepted.",
                 "tanker_id": tanker.id,
                 "request_id": request.id,
                 "status": tanker.status,
-                "loading_deadline": request.loading_deadline.isoformat() if request.loading_deadline else None,
             }
-        validate_transition_or_400(tanker.status, "loading", TANKER_STATUS_TRANSITIONS, "Tanker")
-        validate_transition_or_400(request.status, "loading", REQUEST_STATUS_TRANSITIONS, "Priority request")
+
+        validate_transition_or_400(tanker.status, "assigned", TANKER_STATUS_TRANSITIONS, "Tanker")
+        validate_transition_or_400(request.status, "assigned", REQUEST_STATUS_TRANSITIONS, "Priority request")
+
         tanker.current_request_id = request.id
-        tanker.status = "loading"
+        tanker.status = "assigned"
         tanker.is_available = False
-        request.status = "loading"
+
+        request.status = "assigned"
         request.accepted_at = request.accepted_at or datetime.utcnow()
-        request.loading_deadline = request.loading_deadline or (datetime.utcnow() + timedelta(minutes=LOADING_WINDOW_MINUTES))
+
         tanker.pending_offer_type = None
         tanker.pending_offer_id = None
         tanker.offer_expires_at = None
-        ensure_priority_delivery_record(db, request.id, tanker.id)
+
         db.commit()
         db.refresh(tanker)
         db.refresh(request)
-        return {"message": "Offer accepted. Go load water and confirm when the tanker is ready.", "tanker_id": tanker.id, "request_id": request.id, "status": tanker.status, "loading_deadline": request.loading_deadline.isoformat() if request.loading_deadline else None}
+
+        return {
+            "message": "Offer accepted. Start loading when ready.",
+            "tanker_id": tanker.id,
+            "request_id": request.id,
+            "status": tanker.status,
+        }
+
     if tanker.pending_offer_type == "batch":
         batch = get_batch_or_404(db, tanker.pending_offer_id)
         ensure_one_active_job_rule(db, tanker, expected_batch_id=batch.id)
-        if batch.tanker_id == tanker.id and batch.status == "loading":
+
+        # idempotent replay
+        if batch.tanker_id == tanker.id and tanker.status in {"assigned", "loading", "delivering", "arrived"}:
             clear_tanker_offer(db, tanker, make_available=False)
             db.commit()
-            return {"message": "Batch already accepted. Go load water and confirm when the tanker is ready.", "tanker_id": tanker.id, "batch_id": batch.id, "status": tanker.status, "loading_deadline": batch.loading_deadline.isoformat() if batch.loading_deadline else None}
-        validate_transition_or_400(tanker.status, "loading", TANKER_STATUS_TRANSITIONS, "Tanker")
-        validate_transition_or_400(batch.status, "loading", BATCH_STATUS_TRANSITIONS, "Batch")
+            return {
+                "message": "Batch already accepted.",
+                "tanker_id": tanker.id,
+                "batch_id": batch.id,
+                "status": tanker.status,
+            }
+
+        validate_transition_or_400(tanker.status, "assigned", TANKER_STATUS_TRANSITIONS, "Tanker")
+        validate_transition_or_400(batch.status, "assigned", BATCH_STATUS_TRANSITIONS, "Batch")
+
         batch.tanker_id = tanker.id
-        batch.status = "loading"
+        batch.status = "assigned"
         batch.assigned_at = batch.assigned_at or datetime.utcnow()
-        batch.loading_deadline = batch.loading_deadline or (datetime.utcnow() + timedelta(minutes=LOADING_WINDOW_MINUTES))
-        tanker.status = "loading"
+
+        tanker.status = "assigned"
         tanker.is_available = False
+
         tanker.pending_offer_type = None
         tanker.pending_offer_id = None
         tanker.offer_expires_at = None
-        ensure_batch_delivery_records(db, batch.id, tanker.id)
+
         db.commit()
         db.refresh(tanker)
         db.refresh(batch)
-        return {"message": "Batch accepted. Go load water and confirm when the tanker is ready.", "tanker_id": tanker.id, "batch_id": batch.id, "status": tanker.status, "loading_deadline": batch.loading_deadline.isoformat() if batch.loading_deadline else None}
+
+        return {
+            "message": "Batch accepted. Start loading when ready.",
+            "tanker_id": tanker.id,
+            "batch_id": batch.id,
+            "status": tanker.status,
+        }
+
     raise HTTPException(status_code=400, detail="Unsupported offer type")
 
 
@@ -396,44 +528,93 @@ def get_current_job(tanker_id: int, db: Session = Depends(get_db)):
 def accept_batch_job_legacy(tanker_id: int, batch_id: int, db: Session = Depends(get_db)):
     tanker = get_tanker_or_404(db, tanker_id)
     batch = get_batch_or_404(db, batch_id)
-    if batch.status == "loading" and batch.tanker_id == tanker.id:
-        return {"message": "Batch already accepted. Load water before departure.", "tanker_id": tanker.id, "batch_id": batch.id, "status": tanker.status, "loading_deadline": batch.loading_deadline.isoformat() if batch.loading_deadline else None}
-    ensure_one_active_job_rule(db, tanker, expected_batch_id=batch.id)
+
+    if batch.tanker_id != tanker.id:
+        raise HTTPException(status_code=403, detail="This batch is not assigned to this tanker")
+
+    if batch.status == "loading" and tanker.status == "loading":
+        return {
+            "message": "Batch already moved to loading.",
+            "tanker_id": tanker.id,
+            "batch_id": batch.id,
+            "status": tanker.status,
+            "loading_deadline": batch.loading_deadline.isoformat() if batch.loading_deadline else None,
+        }
+
     validate_transition_or_400(tanker.status, "loading", TANKER_STATUS_TRANSITIONS, "Tanker")
     validate_transition_or_400(batch.status, "loading", BATCH_STATUS_TRANSITIONS, "Batch")
-    batch.tanker_id = tanker.id
+
     batch.status = "loading"
-    batch.assigned_at = batch.assigned_at or datetime.utcnow()
     batch.loading_deadline = batch.loading_deadline or (datetime.utcnow() + timedelta(minutes=LOADING_WINDOW_MINUTES))
+
     tanker.status = "loading"
     tanker.is_available = False
-    ensure_batch_delivery_records(db, batch.id, tanker.id)
+
     db.commit()
     db.refresh(tanker)
     db.refresh(batch)
-    return {"message": "Batch accepted. Load water before departure.", "tanker_id": tanker.id, "batch_id": batch.id, "status": tanker.status, "loading_deadline": batch.loading_deadline.isoformat() if batch.loading_deadline else None}
+
+    return {
+        "message": "Batch moved to loading.",
+        "tanker_id": tanker.id,
+        "batch_id": batch.id,
+        "status": tanker.status,
+        "loading_deadline": batch.loading_deadline.isoformat() if batch.loading_deadline else None,
+    }
 
 
 @router.post("/{tanker_id}/accept-priority/{request_id}")
 def accept_priority_job_legacy(tanker_id: int, request_id: int, db: Session = Depends(get_db)):
     tanker = get_tanker_or_404(db, tanker_id)
     request = get_request_or_404(db, request_id)
-    if tanker.current_request_id == request.id and request.status == "loading":
-        return {"message": "Priority request already accepted. Load water before departure.", "tanker_id": tanker.id, "request_id": request.id, "status": tanker.status}
-    ensure_one_active_job_rule(db, tanker, expected_request_id=request.id)
+
+    # Recovery path:
+    # If the request is already in assigned state and the tanker is assigned,
+    # but current_request_id was not persisted correctly, heal it here.
+    if tanker.current_request_id is None and request.status == "assigned" and tanker.status == "assigned":
+        tanker.current_request_id = request.id
+        db.add(tanker)
+        db.commit()
+        db.refresh(tanker)
+
+    # Idempotent / healing path:
+    # If tanker already points to this request and is already loading, return success
+    if tanker.current_request_id == request.id and request.status == "loading" and tanker.status == "loading":
+        return {
+            "message": "Priority request already moved to loading.",
+            "tanker_id": tanker.id,
+            "request_id": request.id,
+            "status": tanker.status,
+            "loading_deadline": request.loading_deadline.isoformat() if request.loading_deadline else None,
+        }
+
+    # Still not linked? Then reject.
+    if tanker.current_request_id != request.id:
+        raise HTTPException(status_code=403, detail="This priority request is not assigned to this tanker")
+
     validate_transition_or_400(tanker.status, "loading", TANKER_STATUS_TRANSITIONS, "Tanker")
     validate_transition_or_400(request.status, "loading", REQUEST_STATUS_TRANSITIONS, "Priority request")
-    tanker.current_request_id = request.id
+
     tanker.status = "loading"
     tanker.is_available = False
+
     request.status = "loading"
+    request.loading_deadline = request.loading_deadline or (
+        datetime.utcnow() + timedelta(minutes=LOADING_WINDOW_MINUTES)
+    )
     request.accepted_at = request.accepted_at or datetime.utcnow()
-    request.loading_deadline = request.loading_deadline or (datetime.utcnow() + timedelta(minutes=LOADING_WINDOW_MINUTES))
-    ensure_priority_delivery_record(db, request.id, tanker.id)
+
     db.commit()
     db.refresh(tanker)
     db.refresh(request)
-    return {"message": "Priority request accepted. Load water before departure.", "tanker_id": tanker.id, "request_id": request.id, "status": tanker.status}
+
+    return {
+        "message": "Priority request moved to loading.",
+        "tanker_id": tanker.id,
+        "request_id": request.id,
+        "status": tanker.status,
+        "loading_deadline": request.loading_deadline.isoformat() if request.loading_deadline else None,
+    }
 
 
 @router.post("/{tanker_id}/loaded/{batch_id}")
@@ -454,10 +635,12 @@ def mark_batch_loaded(tanker_id: int, batch_id: int, db: Session = Depends(get_d
     batch.status = "delivering"
     batch.delivering_started_at = batch.delivering_started_at or datetime.utcnow()
     batch.loading_deadline = None
+    move_first_open_delivery_to_en_route(db, tanker.id, batch_id=batch.id, commit=False)
+    db.add(tanker)
+    db.add(batch)
     db.commit()
     db.refresh(tanker)
     db.refresh(batch)
-    move_first_open_delivery_to_en_route(db, tanker.id, batch_id=batch.id)
     return {"message": "Tanker marked as loaded. Delivery details are now available.", "tanker_id": tanker.id, "batch_id": batch.id, "tanker_status": tanker.status, "batch_status": batch.status}
 
 
@@ -479,10 +662,12 @@ def mark_priority_loaded(tanker_id: int, request_id: int, db: Session = Depends(
     request.status = "delivering"
     request.loading_deadline = None
     request.delivering_started_at = request.delivering_started_at or datetime.utcnow()
+    move_first_open_delivery_to_en_route(db, tanker.id, request_id=request.id, commit=False)
+    db.add(tanker)
+    db.add(request)
     db.commit()
     db.refresh(tanker)
     db.refresh(request)
-    move_first_open_delivery_to_en_route(db, tanker.id, request_id=request.id)
     return {"message": "Priority tanker marked as loaded. Delivery details are now available.", "tanker_id": tanker.id, "request_id": request.id, "tanker_status": tanker.status, "request_status": request.status}
 
 
