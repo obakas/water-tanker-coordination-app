@@ -197,7 +197,8 @@ def process_single_batch(db: Session, batch: Batch) -> dict:
             db.refresh(batch)
             result["radius_widened"] = True
 
-        if batch.status == "ready_for_assignment" and is_batch_ready_for_assignment(batch, members):
+        fill_ratio = (float(batch.current_volume or 0) / float(batch.target_volume)) if getattr(batch, "target_volume", 0) else 0.0
+        if batch.status in ["near_ready", "ready_for_assignment"] and fill_ratio >= 0.9 and not has_active_offer_for_batch(db, batch.id) and not getattr(batch, "tanker_id", None):
             assignment_result = assign_best_tanker_for_batch(
                 db,
                 batch=batch,

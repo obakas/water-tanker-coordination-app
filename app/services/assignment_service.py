@@ -24,19 +24,70 @@ from app.services.driver_scoring_service import (
 # )
 
 MAX_BATCH_ASSIGNMENT_RADIUS_KM = 2.0
+MIN_BATCH_ASSIGNMENT_RADIUS_KM = 5.0
+LOCATION_STALE_AFTER_MINUTES = 3
 OFFER_TTL_SECONDS = 60
 MAX_PRIORITY_ASSIGNMENT_RETRIES = 5
 PRIORITY_ASSIGNMENT_TIMEOUT_MINUTES = 20
 
 
+def _has_recent_location(tanker: Tanker, *, max_age_minutes: int = LOCATION_STALE_AFTER_MINUTES) -> bool:
+    last_update = getattr(tanker, "last_location_update_at", None)
+    if not last_update:
+        return False
+    return last_update >= datetime.utcnow() - timedelta(minutes=max_age_minutes)
+
+
+def _has_real_coordinates(tanker: Tanker) -> bool:
+    lat = getattr(tanker, "latitude", None)
+    lon = getattr(tanker, "longitude", None)
+
+    if lat is None or lon is None:
+        return False
+
+    # Reject obvious placeholder coordinates that poison distance-based assignment.
+    if abs(lat) < 0.0001 and abs(lon) < 0.0001:
+        return False
+
+    if abs(lat - 1.0) < 0.0001 and abs(lon - 1.0) < 0.0001:
+        return False
+
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return False
+
+    return True
+
+
+def _is_assignable_available_tanker(tanker: Tanker) -> bool:
+    is_online = bool(getattr(tanker, "is_online", True))
+    is_available = bool(getattr(tanker, "is_available", False))
+    status = str(getattr(tanker, "status", "") or "").lower()
+    paused_until = getattr(tanker, "paused_until", None)
+    pending_offer_type = getattr(tanker, "pending_offer_type", None)
+    pending_offer_id = getattr(tanker, "pending_offer_id", None)
+    current_request_id = getattr(tanker, "current_request_id", None)
+
+    if not is_online:
+        return False
+
+    if not is_available or status != "available":
+        return False
+
+    if pending_offer_type or pending_offer_id:
+        return False
+
+    if current_request_id is not None:
+        return False
+
+    if paused_until and paused_until > datetime.utcnow():
+        return False
+
+    return True
+
+
 def get_eligible_tankers(db: Session):
-    return db.query(Tanker).filter(
-        Tanker.is_available == True,
-        Tanker.status == "available",
-        Tanker.is_online == True,
-        Tanker.pending_offer_type.is_(None),
-        Tanker.pending_offer_id.is_(None),
-    ).all()
+    tankers = db.query(Tanker).all()
+    return [tanker for tanker in tankers if _is_assignable_available_tanker(tanker)]
 
 
 def rank_tankers_for_job(
@@ -489,6 +540,11 @@ def retry_batch_assignment(
     if excluded_tanker_ids:
         tried_ids.update(excluded_tanker_ids)
 
+    batch.status = "ready_for_assignment"
+    batch.assignment_started_at = batch.assignment_started_at or datetime.utcnow()
+    db.add(batch)
+    db.flush()
+
     result = assign_best_tanker_for_batch(
         db,
         batch=batch,
@@ -499,7 +555,6 @@ def retry_batch_assignment(
     if result.get("assigned"):
         return result
 
-    batch.status = "ready_for_assignment"
     db.add(batch)
     db.commit()
     db.refresh(batch)
@@ -664,8 +719,12 @@ def get_eligible_tankers_for_batch(
 ) -> list[Tanker]:
     batch_lat = getattr(batch, "latitude", None)
     batch_lon = getattr(batch, "longitude", None)
-    max_radius_km = getattr(batch, "search_radius_km", None) or 8.0
+    configured_radius = float(getattr(batch, "search_radius_km", 0) or 0)
+    max_radius_km = max(configured_radius, MIN_BATCH_ASSIGNMENT_RADIUS_KM)
     excluded = set(excluded_tanker_ids or [])
+
+    if batch_lat is None or batch_lon is None:
+        return []
 
     tankers = db.query(Tanker).all()
     eligible: list[Tanker] = []
@@ -674,34 +733,17 @@ def get_eligible_tankers_for_batch(
         if tanker.id in excluded:
             continue
 
-        is_online = bool(getattr(tanker, "is_online", True))
-        is_available = bool(getattr(tanker, "is_available", False))
-        status = str(getattr(tanker, "status", "") or "").lower()
-        paused_until = getattr(tanker, "paused_until", None)
-        pending_offer_type = getattr(tanker, "pending_offer_type", None)
-        pending_offer_id = getattr(tanker, "pending_offer_id", None)
-        current_request_id = getattr(tanker, "current_request_id", None)
-
-        if not is_online:
+        if not _is_assignable_available_tanker(tanker):
             continue
 
-        if not is_available or status != "available":
+        if not _has_real_coordinates(tanker):
             continue
 
-        if pending_offer_type or pending_offer_id:
-            continue
-
-        if current_request_id is not None:
-            continue
-
-        if paused_until and paused_until > datetime.utcnow():
+        if not _has_recent_location(tanker):
             continue
 
         tanker_lat = getattr(tanker, "latitude", None)
         tanker_lon = getattr(tanker, "longitude", None)
-
-        if None in (batch_lat, batch_lon, tanker_lat, tanker_lon):
-            continue
 
         distance_km = haversine_km(
             tanker_lat,
@@ -728,13 +770,31 @@ def rank_tankers_for_batch(
 ) -> list[dict[str, Any]]:
     ranked: list[dict[str, Any]] = []
 
+    # for tanker in tankers:
+    #     score, breakdown = score_driver_for_batch(
+    #         db=db,
+    #         tanker=tanker,
+    #         batch=batch,
+    #         members=members,
+    #     )
+    #     ranked.append(
+    #         {
+    #             "tanker": tanker,
+    #             "score": score,
+    #             "breakdown": breakdown,
+    #         }
+    #     )
+
     for tanker in tankers:
-        score, breakdown = score_driver_for_batch(
+        breakdown = score_driver_for_batch(
             db=db,
             tanker=tanker,
             batch=batch,
             members=members,
         )
+
+        score = float(breakdown.get("final_score", 0.0) or 0.0)
+
         ranked.append(
             {
                 "tanker": tanker,

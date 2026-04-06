@@ -17,8 +17,8 @@ const DriverAuthModal = ({ onLogin }: DriverAuthModalProps) => {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [tankPlateNumber, setTankPlateNumber] = useState("");
-  const [latitude, setLatitude] = useState("");
-  const [longitude, setLongitude] = useState("");
+  // const [latitude, setLatitude] = useState("");
+  // const [longitude, setLongitude] = useState("");
   const [loading, setLoading] = useState(false);
 
   const isLogin = mode === "login";
@@ -27,8 +27,8 @@ const DriverAuthModal = ({ onLogin }: DriverAuthModalProps) => {
     setName("");
     setPhone("");
     setTankPlateNumber("");
-    setLatitude("");
-    setLongitude("");
+    // setLatitude("");
+    // setLongitude("");
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -60,8 +60,8 @@ const DriverAuthModal = ({ onLogin }: DriverAuthModalProps) => {
             name.trim(),
             phone.trim(),
             tankPlateNumber.trim(),
-            latitude.trim() ? Number(latitude) : null,
-            longitude.trim() ? Number(longitude) : null
+            // latitude.trim() ? Number(latitude) : null,
+            // longitude.trim() ? Number(longitude) : null
           );
 
       onLogin({
@@ -117,21 +117,21 @@ const DriverAuthModal = ({ onLogin }: DriverAuthModalProps) => {
               onChange={(e) => setTankPlateNumber(e.target.value)}
             />
 
-            <input
+            {/* <input
               className="w-full rounded-md border bg-background px-3 py-2"
               placeholder="Latitude (optional for now)"
               value={latitude}
               onChange={(e) => setLatitude(e.target.value)}
               inputMode="decimal"
-            />
+            /> */}
 
-            <input
+            {/* <input
               className="w-full rounded-md border bg-background px-3 py-2"
               placeholder="Longitude (optional for now)"
               value={longitude}
               onChange={(e) => setLongitude(e.target.value)}
               inputMode="decimal"
-            />
+            /> */}
           </>
         )}
 

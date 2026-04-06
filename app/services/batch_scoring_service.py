@@ -1,21 +1,13 @@
-# app/services/batch_scoring_service.py
-
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from math import exp
-from typing import Iterable, Optional
+from typing import Iterable
 
 from app.models.batch import Batch
 from app.models.batch_member import BatchMember
-# from app.utils.location import haversine_distance_km
 from app.services.driver_scoring_service import haversine_km
 
-
-# -----------------------------
-# Tunable thresholds / constants
-# -----------------------------
 
 NEAR_READY_FILL_RATIO = 0.70
 READY_FILL_RATIO = 0.90
@@ -25,13 +17,12 @@ READY_PAYMENT_RATIO = 0.80
 
 MIN_PAID_MEMBERS_FOR_READY = 2
 
-# Members should ideally remain within roughly 1km as you previously wanted.
+# Strictly ideal compactness target, but we should not let this kill
+# obviously healthy full batches in MVP conditions.
 MAX_IDEAL_MEMBER_DISTANCE_KM = 1.0
 
-# After this many hours, old batches should gain urgency.
 WAIT_URGENCY_FULL_AT_HOURS = 6
 
-# If compactness is below this, batch may still form, but should not be promoted aggressively.
 MIN_GEO_COMPACTNESS_FOR_PROMOTION = 0.50
 
 
@@ -68,13 +59,6 @@ def get_batch_age_hours(batch: Batch) -> float:
 
 
 def calculate_fill_ratio(batch: Batch, members: Iterable[BatchMember]) -> float:
-    # def calculate_fill_ratio(batch: Batch) -> float:
-    # current_volume = float(getattr(batch, "current_volume", 0) or 0)
-    # target_volume = float(getattr(batch, "target_volume", 0) or 0)
-
-    # current_volume = getattr(batch, "current_volume", None)
-    # target_volume = getattr(batch, "target_volume", None)
-
     current_volume = float(getattr(batch, "current_volume", 0) or 0)
     target_volume = float(getattr(batch, "target_volume", 0) or 0)
 
@@ -82,13 +66,9 @@ def calculate_fill_ratio(batch: Batch, members: Iterable[BatchMember]) -> float:
         return 0.0
 
     return clamp(current_volume / target_volume)
-    # return float(current_volume / target_volume)
 
 
 def is_member_paid(member: BatchMember) -> bool:
-    """
-    Adjust this if your app uses another convention.
-    """
     payment_status = str(getattr(member, "payment_status", "") or "").lower()
     return payment_status in {"paid", "completed", "success", "confirmed"}
 
@@ -108,12 +88,10 @@ def calculate_geo_compactness(batch: Batch, members: Iterable[BatchMember]) -> f
     """
     Measures how geographically tight the batch is.
 
-    Simple V1:
+    V1:
     - compare each member distance to the batch center
     - average the distance
     - compress score into 0..1 where <= 1km is strong
-
-    If members are all close to the batch center, compactness stays high.
     """
     members = list(members)
     if not members:
@@ -125,7 +103,7 @@ def calculate_geo_compactness(batch: Batch, members: Iterable[BatchMember]) -> f
     if batch_lat is None or batch_lon is None:
         return 0.5
 
-    distances = []
+    distances: list[float] = []
     for member in members:
         lat = getattr(member, "latitude", None)
         lon = getattr(member, "longitude", None)
@@ -140,18 +118,11 @@ def calculate_geo_compactness(batch: Batch, members: Iterable[BatchMember]) -> f
 
     avg_distance = sum(distances) / len(distances)
 
-    # <= 1km should feel excellent
-    # > 1km declines smoothly
     compactness = 1 - min(avg_distance / MAX_IDEAL_MEMBER_DISTANCE_KM, 1)
     return clamp(compactness)
 
 
 def calculate_wait_urgency(batch: Batch) -> float:
-    """
-    Older batches deserve more system attention.
-    A fresh batch has low urgency.
-    A batch reaching WAIT_URGENCY_FULL_AT_HOURS approaches 1.0 urgency.
-    """
     age_hours = get_batch_age_hours(batch)
     if WAIT_URGENCY_FULL_AT_HOURS <= 0:
         return 0.0
@@ -173,9 +144,6 @@ def calculate_batch_health_score(
     members = list(members)
 
     fill_ratio = calculate_fill_ratio(batch, members)
-    # current_volume = getattr(batch, "current_volume", None)
-    # target_volume = getattr(batch, "target_volume", None)
-    # fill_ratio = current_volume / target_volume if target_volume > 0 else 0
     payment_ratio, paid_count, total_count = calculate_payment_ratio(members)
     geo_compactness = calculate_geo_compactness(batch, members)
     wait_urgency = calculate_wait_urgency(batch)
@@ -201,6 +169,15 @@ def calculate_batch_health_score(
 def is_batch_near_ready(batch: Batch, members: Iterable[BatchMember]) -> bool:
     score = calculate_batch_health_score(batch, members)
 
+    # Strong override: once a batch is 90%+ full and has decent payment signal,
+    # don't let compactness alone keep it in "forming".
+    if (
+        score.fill_ratio >= 0.90
+        and score.payment_ratio >= NEAR_READY_PAYMENT_RATIO
+        and score.paid_members_count >= 2
+    ):
+        return True
+
     return (
         score.fill_ratio >= NEAR_READY_FILL_RATIO
         and score.payment_ratio >= NEAR_READY_PAYMENT_RATIO
@@ -211,30 +188,41 @@ def is_batch_near_ready(batch: Batch, members: Iterable[BatchMember]) -> bool:
 def is_batch_ready_for_assignment(batch: Batch, members: Iterable[BatchMember]) -> bool:
     score = calculate_batch_health_score(batch, members)
 
-    return (
+    # Strong override: if the tanker is effectively full and members are paid,
+    # do not let compactness block assignment in the MVP.
+    if (
+        score.fill_ratio >= 1.0
+        and score.payment_ratio >= READY_PAYMENT_RATIO
+        and score.paid_members_count >= MIN_PAID_MEMBERS_FOR_READY
+    ):
+        return True
+
+    # Also allow the normal 90% threshold when payment signal is strong and
+    # enough paid members exist.
+    if (
         score.fill_ratio >= READY_FILL_RATIO
         and score.payment_ratio >= READY_PAYMENT_RATIO
         and score.paid_members_count >= MIN_PAID_MEMBERS_FOR_READY
         and score.geo_compactness >= MIN_GEO_COMPACTNESS_FOR_PROMOTION
-    )
+    ):
+        return True
+
+    return False
 
 
 def should_widen_radius(batch: Batch, members: Iterable[BatchMember]) -> bool:
     """
     Used to relax matching rules for old / struggling batches.
-
-    Example rule:
-    - batch is older than 3 hours
-    - still below near-ready fill ratio
     """
     age_hours = get_batch_age_hours(batch)
     fill_ratio = calculate_fill_ratio(batch, members)
-    # current_volume = getattr(batch, "current_volume", None)
-    # target_volume = getattr(batch, "target_volume", None)
-    # fill_ratio = current_volume / target_volume if target_volume > 0 else 0
     payment_ratio, _, _ = calculate_payment_ratio(members)
 
-    return age_hours >= 3 and fill_ratio < NEAR_READY_FILL_RATIO and payment_ratio < READY_PAYMENT_RATIO
+    return (
+        age_hours >= 3
+        and fill_ratio < NEAR_READY_FILL_RATIO
+        and payment_ratio < READY_PAYMENT_RATIO
+    )
 
 
 def should_expire_batch(batch: Batch, members: Iterable[BatchMember]) -> bool:

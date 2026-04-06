@@ -248,8 +248,8 @@ export async function signupDriver(
   name: string,
   phone: string,
   tank_plate_number: string,
-  latitude?: number | null,
-  longitude?: number | null,
+  // latitude?: number | null,
+  // longitude?: number | null,
   // tankerId?: number
 ) {
   return apiRequest<DriverUserResponse>("/auth/driver-signup", {
@@ -258,8 +258,8 @@ export async function signupDriver(
       name,
       phone,
       tank_plate_number,
-      latitude,
-      longitude,
+      // latitude,
+      // longitude,
       // tankerId,
     }),
   });

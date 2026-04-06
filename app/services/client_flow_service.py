@@ -7,16 +7,15 @@ from sqlalchemy.orm import Session
 
 from app.schemas.request import RequestCreate
 from app.services.batch_service import find_or_create_batch
-from app.services.payment_service import confirm_payment, initiate_payment
 from app.services.priority_service import (
     create_and_assign_priority_request,
     create_scheduled_priority_request,
 )
 from app.services.request_service import (
     create_batch_request_record,
-    create_priority_request_record,
     get_request_by_id,
 )
+from app.services.batch_orchestration_service import refresh_batch_state
 from app.models.DeliveryRecord import DeliveryRecord
 from app.models.tanker import Tanker
 
@@ -96,6 +95,10 @@ def get_priority_request_live_flow(db: Session, request_id: int) -> dict[str, An
 def create_client_request_flow(db: Session, data: RequestCreate) -> dict[str, Any]:
     """
     Main entry point from route layer.
+
+    IMPORTANT FOR BATCH:
+    This flow assumes payment has ALREADY succeeded on the frontend side.
+    The user should only hit this endpoint after successful payment.
     """
     if data.delivery_type == "batch":
         return create_batch_request_flow(db, data)
@@ -108,31 +111,61 @@ def create_client_request_flow(db: Session, data: RequestCreate) -> dict[str, An
 
 def create_batch_request_flow(db: Session, data: RequestCreate) -> dict[str, Any]:
     """
-    1. Create request
-    2. Find/create batch
-    3. Create payment
+    Paid-first batch flow:
+
+    1. User has already paid successfully on frontend
+    2. Create request record
+    3. Find/create compatible batch
+    4. Add member as PAID + ACTIVE immediately
+    5. Generate OTP immediately
+    6. Refresh batch state
+    7. Return batch + OTP to frontend
+
+    No unpaid member reservation here.
     """
     request = create_batch_request_record(db, data)
     batch_result = find_or_create_batch(db, request)
 
     batch = batch_result["batch"]
     member = batch_result["member"]
-    payment = initiate_payment(db, member.id)
-    payment_result = confirm_payment(db, payment.id)
+
+    snapshot = refresh_batch_state(db, batch.id)
+
+    refreshed_batch = snapshot.get("batch") if isinstance(snapshot, dict) else None
+    batch_status = (
+        getattr(refreshed_batch, "status", None)
+        if refreshed_batch is not None
+        else getattr(batch, "status", None)
+    )
+    current_volume = (
+        float(getattr(refreshed_batch, "current_volume", 0) or 0)
+        if refreshed_batch is not None
+        else float(getattr(batch, "current_volume", 0) or 0)
+    )
+    target_volume = (
+        float(getattr(refreshed_batch, "target_volume", 0) or 0)
+        if refreshed_batch is not None
+        else float(getattr(batch, "target_volume", 0) or 0)
+    )
 
     return {
-        "message": "Batch request created successfully",
+        "message": "Batch request created successfully after payment.",
         "request_id": request.id,
         "batch_id": batch.id,
         "member_id": member.id,
-        "payment_id": payment.id,
         "request_status": request.status,
-        "request_status": request.status,
-        "batch_status": payment_result.get("batch_snapshot", {}).get("status", batch.status),
-        "payment_status": payment_result.get("member_payment_status"),
-        "member_status": payment_result.get("member_status"),
-        "delivery_code": payment_result.get("delivery_code"),
-        "batch_snapshot": payment_result.get("batch_snapshot"),
+        "batch_status": batch_status,
+        "payment_status": member.payment_status,
+        "member_status": member.status,
+        "delivery_code": getattr(member, "delivery_code", None),
+        "payment_confirmed": True,
+        "batch_snapshot": {
+            "id": batch.id,
+            "status": batch_status,
+            "current_volume": current_volume,
+            "target_volume": target_volume,
+        },
+        "orchestration": snapshot,
     }
 
 
@@ -148,16 +181,28 @@ def create_priority_request_flow(db: Session, data: RequestCreate) -> dict[str, 
 
 
 def initiate_batch_member_payment_flow(db: Session, member_id: int) -> dict[str, Any]:
-    payment = initiate_payment(db, member_id)
-    return {
-        "message": "Payment initiated",
-        "payment_id": payment.id,
-        "status": payment.status,
-    }
+    """
+    Legacy compatibility helper.
+
+    In the paid-first model, batch members should already be paid before they
+    are inserted into the batch. So this function now simply reports state.
+    """
+    raise HTTPException(
+        status_code=400,
+        detail="Batch payment is now paid-first. Do not initiate batch-member payment after batch creation.",
+    )
 
 
 def confirm_batch_member_payment_flow(db: Session, payment_id: int) -> dict[str, Any]:
-    return confirm_payment(db, payment_id)
+    """
+    Legacy compatibility helper.
+
+    In the paid-first model, payment confirmation should happen BEFORE batch creation.
+    """
+    raise HTTPException(
+        status_code=400,
+        detail="Batch payment is now paid-first. Do not confirm batch-member payment after batch creation.",
+    )
 
 
 def get_client_request_status_flow(db: Session, request_id: int) -> dict[str, Any]:

@@ -75,6 +75,8 @@ class DeliveryRecord(Base):
     skip_reason = Column(String, nullable=True)
 
     photo_proof_url = Column(String, nullable=True)
+    
+    batch_member_id = Column(Integer, ForeignKey("batch_members.id"), nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(

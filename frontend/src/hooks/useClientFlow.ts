@@ -8,7 +8,12 @@ import {
   PLATFORM_BATCH_COMMISSION_RATE,
 } from "@/constants/water";
 import { useLiveBatch } from "@/hooks/useLiveBatch";
-import { createWaterRequest, type UserResponse } from "@/lib/api";
+// import { createWaterRequest, type UserResponse } from "@/lib/api";
+import {
+  createWaterRequest,
+  confirmPayment,
+  type UserResponse,
+} from "@/lib/api";
 import { leaveBatchMember } from "@/lib/batches";
 import { useLivePriorityRequest } from "@/hooks/useLivePriorityRequest";
 
@@ -333,7 +338,14 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
       return;
     }
 
+    // setStep("request");
+    // setStep("payment")
+    // if(step=="request"){
+    //   setStep("requst");
+    // } else {
     setStep("payment");
+    // }
+
   };
 
   const handleAuthSuccess = (user: UserResponse) => {
@@ -341,7 +353,14 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     localStorage.setItem(USER_KEY, JSON.stringify(user));
     setShowAuthModal(false);
     toast.success(`Welcome, ${user.name}!`);
-    setStep("payment");
+    // setStep("payment");
+    // if(handleContinueToPayment){
+    //   setStep("payment");
+    // } else {
+    //   setStep("request");
+    // }
+    setStep("request");
+
   };
 
   const resetClientFlow = () => {
@@ -404,6 +423,94 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     }
   };
 
+  // const handlePayment = async () => {
+  //   if (!selectedSize) {
+  //     toast.error("Please select a tank size");
+  //     return;
+  //   }
+
+  //   if (
+  //     requestMode === "priority" &&
+  //     priorityMode === "scheduled" &&
+  //     !scheduledFor
+  //   ) {
+  //     toast.error("Please select an exact delivery date and time");
+  //     return;
+  //   }
+
+  //   if (!currentUser) {
+  //     toast.error("Please sign up or log in before making payment");
+  //     setAuthMode("signup");
+  //     setShowAuthModal(true);
+  //     return;
+  //   }
+
+  //   try {
+  //     setIsSubmittingRequest(true);
+
+  //     const coords = await getClientCoordinates();
+
+  //     const payload = {
+  //       user_id: currentUser.id,
+  //       liquid_id: 1,
+  //       volume_liters: selectedSize,
+  //       latitude: coords.latitude,
+  //       longitude: coords.longitude,
+  //       delivery_type: requestMode,
+  //       ...(requestMode === "priority"
+  //         ? priorityMode === "asap"
+  //           ? { is_asap: true }
+  //           : { is_asap: false, scheduled_for: scheduledFor }
+  //         : {}),
+  //     };
+
+  //     const response = (await createWaterRequest(
+  //       payload
+  //     )) as RequestResponseWithOtp;
+
+  //     const nextRequestId = response.request_id ?? null;
+  //     const nextBatchId = response.batch_id ?? null;
+  //     const nextMemberId = response.member_id ?? null;
+  //     const nextPaymentDeadline = response.payment_deadline ?? null;
+  //     const nextOtp = response.delivery_code ?? "";
+
+  //     setRequestId(nextRequestId);
+  //     setBatchId(nextBatchId);
+  //     setMemberId(nextMemberId);
+  //     setPaymentDeadline(nextPaymentDeadline);
+  //     setOtp(nextOtp);
+
+  //     const clientSession: ClientSession = {
+  //       requestId: nextRequestId,
+  //       batchId: nextBatchId,
+  //       memberId: nextMemberId,
+  //       paymentDeadline: nextPaymentDeadline,
+  //       requestMode,
+  //       selectedSize,
+  //       priorityMode,
+  //       scheduledFor,
+  //       otp: nextOtp,
+  //     };
+
+  //     localStorage.setItem(CLIENT_SESSION_KEY, JSON.stringify(clientSession));
+
+  //     toast.success("Payment confirmed and request created!");
+
+  //     if (requestMode === "batch") {
+  //       setStep("batch");
+  //     } else {
+  //       setStep("tanker");
+  //     }
+  //   } catch (error) {
+  //     const message =
+  //       error instanceof Error ? error.message : "Failed to create request";
+  //     toast.error(message);
+  //   } finally {
+  //     setIsSubmittingRequest(false);
+  //   }
+  // };
+
+
   const handlePayment = async () => {
     if (!selectedSize) {
       toast.error("Please select a tank size");
@@ -452,9 +559,55 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
       const nextRequestId = response.request_id ?? null;
       const nextBatchId = response.batch_id ?? null;
       const nextMemberId = response.member_id ?? null;
-      const nextPaymentDeadline = response.payment_status === "paid" ? null : response.payment_deadline ?? null;
+      const nextPaymentDeadline = response.payment_deadline ?? null;
       const nextOtp = response.delivery_code ?? "";
 
+      if (requestMode === "batch") {
+        if (!nextMemberId) {
+          throw new Error("Batch member ID missing from create request response");
+        }
+
+        // Simulate successful payment after request creation.
+        // Backend will then promote batch / refresh state / trigger assignment.
+        const paymentConfirmResponse = await confirmPayment(nextMemberId);
+
+        const confirmedRequestId =
+          (paymentConfirmResponse as any)?.request_id ?? nextRequestId;
+        const confirmedBatchId =
+          (paymentConfirmResponse as any)?.batch_id ?? nextBatchId;
+        const confirmedMemberId =
+          (paymentConfirmResponse as any)?.member_id ?? nextMemberId;
+        const confirmedPaymentDeadline =
+          (paymentConfirmResponse as any)?.payment_deadline ?? nextPaymentDeadline;
+        const confirmedOtp =
+          (paymentConfirmResponse as any)?.delivery_code ?? nextOtp;
+
+        setRequestId(confirmedRequestId);
+        setBatchId(confirmedBatchId);
+        setMemberId(confirmedMemberId);
+        setPaymentDeadline(confirmedPaymentDeadline);
+        setOtp(confirmedOtp);
+
+        const clientSession: ClientSession = {
+          requestId: confirmedRequestId,
+          batchId: confirmedBatchId,
+          memberId: confirmedMemberId,
+          paymentDeadline: confirmedPaymentDeadline,
+          requestMode,
+          selectedSize,
+          priorityMode,
+          scheduledFor,
+          otp: confirmedOtp,
+        };
+
+        localStorage.setItem(CLIENT_SESSION_KEY, JSON.stringify(clientSession));
+
+        toast.success("Payment confirmed and batch request created!");
+        setStep("batch");
+        return;
+      }
+
+      // Priority path stays as request-create flow for now
       setRequestId(nextRequestId);
       setBatchId(nextBatchId);
       setMemberId(nextMemberId);
@@ -475,13 +628,8 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
 
       localStorage.setItem(CLIENT_SESSION_KEY, JSON.stringify(clientSession));
 
-      toast.success("Payment confirmed and request created!");
-
-      if (requestMode === "batch") {
-        setStep("batch");
-      } else {
-        setStep("tanker");
-      }
+      toast.success("Priority request created successfully!");
+      setStep("tanker");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to create request";

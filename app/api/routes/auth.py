@@ -16,8 +16,8 @@ class DriverSignupPayload(BaseModel):
     name: str
     phone: str
     tank_plate_number: str
-    latitude: float | None = None
-    longitude: float | None = None
+    # latitude: float | None = None
+    # longitude: float | None = None
 
 
 @router.post("/login")
@@ -81,8 +81,8 @@ def driver_signup(payload: DriverSignupPayload, db: Session = Depends(get_db)):
         driver_name=payload.name.strip(),
         phone=phone,
         tank_plate_number=plate,
-        latitude=payload.latitude,
-        longitude=payload.longitude,
+        # latitude=payload.latitude,
+        # longitude=payload.longitude,
         status="available",
         is_available=True,
         is_online=True,

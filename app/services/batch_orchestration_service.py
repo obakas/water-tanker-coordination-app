@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.models.batch import Batch
 from app.models.batch_member import BatchMember
-from app.schemas import batch
+from app.services.assignment_service import assign_best_tanker_for_batch
 from app.services.batch_scoring_service import (
     calculate_batch_health_score,
     get_batch_dispatch_priority,
@@ -18,10 +18,10 @@ from app.services.batch_scoring_service import (
 from app.services.batch_service import (
     get_batch_by_id,
     get_batch_members,
-    update_batch_status,
+    update_batch_center,
     update_batch_current_volume,
+    update_batch_status,
 )
-from app.services.assignment_service import assign_best_tanker_for_batch
 from app.services.routing_service import plan_batch_delivery_order
 
 
@@ -45,6 +45,7 @@ def build_batch_state_snapshot(batch: Batch, members: list[BatchMember]) -> dict
         "is_near_ready": is_batch_near_ready(batch, members),
         "is_ready_for_assignment": is_batch_ready_for_assignment(batch, members),
         "should_expire": should_expire_batch(batch, members),
+        "assignment": None,
     }
 
 
@@ -61,11 +62,20 @@ def determine_next_batch_status(batch: Batch, members: list[BatchMember]) -> str
     - expired
 
     This function only decides early/mid lifecycle statuses.
-    It should not override downstream operational statuses like delivering/completed.
+    It should not override downstream operational statuses.
     """
     current_status = str(getattr(batch, "status", "forming") or "forming").lower()
 
-    protected_statuses = {"assigned", "loading", "delivering", "completed", "expired", "cancelled"}
+    protected_statuses = {
+        "assigned",
+        "loading",
+        "delivering",
+        "arrived",
+        "completed",
+        "expired",
+        "cancelled",
+        "assignment_failed",
+    }
     if current_status in protected_statuses:
         return current_status
 
@@ -86,37 +96,44 @@ def refresh_batch_state(db: Session, batch_id: int) -> dict[str, Any]:
     if not batch:
         raise ValueError(f"Batch {batch_id} not found")
 
+    # 1. Recompute paid volume first
     update_batch_current_volume(db, batch.id)
     db.refresh(batch)
 
-    members = get_batch_members(db, batch.id)
-    health = calculate_batch_health_score(batch, members)
-
-    batch.status = determine_next_batch_status(batch, members)
-
-    db.add(batch)
-    db.commit()
+    # 2. Recompute center before health scoring
+    update_batch_center(db, batch)
     db.refresh(batch)
 
-    # 🔥 AUTO-ASSIGNMENT TRIGGER (THIS WAS MISSING)
+    # 3. Score and determine status
+    members = get_batch_members(db, batch.id)
+    next_status = determine_next_batch_status(batch, members)
+
+    if batch.status != next_status:
+        batch.status = next_status
+        db.add(batch)
+        db.commit()
+        db.refresh(batch)
+
+    members = get_batch_members(db, batch.id)
+    snapshot = build_batch_state_snapshot(batch, members)
+
+    # 4. Auto-attempt assignment when batch is mature enough
+    fill_ratio = 0.0
+    if batch.target_volume and batch.target_volume > 0:
+        fill_ratio = float(batch.current_volume or 0) / float(batch.target_volume)
 
     should_attempt_assignment = batch.status in {"near_ready", "ready_for_assignment"}
-
-    fill_ratio = 0
-    if batch.target_volume and batch.target_volume > 0:
-        fill_ratio = batch.current_volume / batch.target_volume
 
     if should_attempt_assignment and fill_ratio >= 0.9 and not getattr(batch, "tanker_id", None):
         assignment_result = assign_tanker_if_ready(db, batch.id, allow_near_ready=True)
 
-        return {
-            "batch_id": batch.id,
-            "status": batch.status,
-            "current_volume": batch.current_volume,
-            "target_volume": batch.target_volume,
-            "health": health,
-            "assignment": assignment_result,
-        }
+        # refresh after assignment attempt in case status/tanker changed
+        db.refresh(batch)
+        members = get_batch_members(db, batch.id)
+        snapshot = build_batch_state_snapshot(batch, members)
+        snapshot["assignment"] = assignment_result
+
+    return snapshot
 
 
 def handle_batch_member_join(
@@ -150,31 +167,34 @@ def handle_batch_payment_confirmed(
     if not batch:
         raise ValueError(f"Batch {batch_id} not found")
 
+    # Normalize member state after payment confirmation
+    member_status = str(getattr(member, "status", "") or "").lower()
+    payment_status = str(getattr(member, "payment_status", "") or "").lower()
+
+    if payment_status == "paid" and member_status in {"pending", "confirmed", "reserved", ""}:
+        member.status = "active"
+        db.add(member)
+        db.commit()
+        db.refresh(member)
+
     snapshot = refresh_batch_state(db, batch_id)
-    db.refresh(batch)
-
-    should_attempt_assignment = snapshot["status"] in {"near_ready", "ready_for_assignment"}
-    fill_ratio = 0
-    if batch.target_volume and batch.target_volume > 0:
-        fill_ratio = batch.current_volume / batch.target_volume
-
-    if should_attempt_assignment and fill_ratio >= 0.9 and not getattr(batch, "tanker_id", None):
-        assignment_result = assign_tanker_if_ready(db, batch_id, allow_near_ready=True)
-        snapshot["assignment"] = assignment_result
-
     return snapshot
 
 
-def assign_tanker_if_ready(db: Session, batch_id: int, allow_near_ready: bool = False) -> dict[str, Any]:
+def assign_tanker_if_ready(
+    db: Session,
+    batch_id: int,
+    allow_near_ready: bool = False,
+) -> dict[str, Any]:
     batch = get_batch_by_id(db, batch_id)
     if not batch:
         raise ValueError(f"Batch {batch_id} not found")
 
     members = get_batch_members(db, batch_id)
 
-    fill_ratio = 0
+    fill_ratio = 0.0
     if batch.target_volume and batch.target_volume > 0:
-        fill_ratio = batch.current_volume / batch.target_volume
+        fill_ratio = float(batch.current_volume or 0) / float(batch.target_volume)
 
     ready = is_batch_ready_for_assignment(batch, members)
     near_ready_enough = allow_near_ready and fill_ratio >= 0.9
@@ -187,7 +207,7 @@ def assign_tanker_if_ready(db: Session, batch_id: int, allow_near_ready: bool = 
         }
 
     current_status = str(getattr(batch, "status", "") or "").lower()
-    if current_status in {"assigned", "loading", "delivering", "completed"}:
+    if current_status in {"assigned", "loading", "delivering", "arrived", "completed"}:
         return {
             "assigned": False,
             "reason": f"Batch already in operational status '{current_status}'",

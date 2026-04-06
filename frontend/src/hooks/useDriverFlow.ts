@@ -301,17 +301,15 @@ export const useDriverFlow = (driver: DriverUser | null) => {
   }, [driver, jobResponse, stopResponse, hadActiveStop, incomingOffer]);
 
   const shouldSendLocation = useMemo(() => {
-    if (!tankerId) return false;
+  if (!tankerId || !driver) return false;
 
-    const tankerStatus = stopResponse?.tanker?.status ?? jobResponse?.tanker_status;
+  const tankerStatus =
+    stopResponse?.tanker?.status ??
+    jobResponse?.tanker_status ??
+    "available";
 
-    return (
-      tankerStatus === "assigned" ||
-      tankerStatus === "loading" ||
-      tankerStatus === "delivering" ||
-      tankerStatus === "arrived"
-    );
-  }, [tankerId, stopResponse, jobResponse]);
+  return tankerStatus !== "offline";
+}, [tankerId, driver, stopResponse, jobResponse]);
 
   const nextInstruction = useMemo(() => {
     if (!driver) return "Log in to continue.";
