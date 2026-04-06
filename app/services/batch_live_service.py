@@ -88,6 +88,8 @@ def get_batch_live_snapshot(db: Session, batch_id: int, member_id: int | None = 
 
         "tanker_id": tanker.id if tanker else None,
         "driver_name": tanker.driver_name if tanker else None,
+        "tanker_plate_number": tanker.tank_plate_number if tanker else None,
+
         "tanker_status": tanker.status if tanker else None,
         "tanker_phone": tanker.phone if tanker else None,
         "tanker_latitude": tanker.latitude if tanker else None,

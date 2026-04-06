@@ -22,6 +22,7 @@ export interface BatchLiveResponse {
 
   tanker_id?: number | null;
   driver_name?: string | null;
+  tank_plate_number?: string | null;
 
   otp?: string | null;
   is_member_active?: boolean | null;

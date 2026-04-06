@@ -210,9 +210,16 @@ export function BatchLifecycleCard({
 
           <p className="text-2xl font-bold text-foreground">{batch.member_count}</p>
 
-          <p className="text-sm text-muted-foreground">
-            Active paid members currently in this batch
-          </p>
+          {batch.member_count === 1 ? (
+            <p className="text-sm text-muted-foreground">member in this batch</p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {batch.member_count} members in this batch
+            </p>
+          )}
+          {/* <p className="text-sm text-muted-foreground">
+            Members currently in this batch
+          </p> */}
         </div>
 
         <div className="rounded-xl border p-4">
@@ -226,6 +233,9 @@ export function BatchLifecycleCard({
               <p className="font-semibold text-foreground">Tanker #{batch.tanker_id}</p>
               <p className="text-sm text-muted-foreground">
                 Driver: {batch.driver_name ?? "Assigned"}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Plate: {batch.tank_plate_number ?? "Assigned"}
               </p>
             </>
           ) : (
