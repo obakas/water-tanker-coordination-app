@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import secrets
 from typing import Any
 
 from fastapi import HTTPException
@@ -36,7 +37,9 @@ def update_batch_status(db: Session, batch: Batch, status: str) -> Batch:
 
 
 def _generate_delivery_code(member_id: int) -> str:
-    return str(member_id).zfill(4)
+    # Random 4-digit OTP. We keep the signature for compatibility even though
+    # the member id is no longer used to derive the code.
+    return f"{secrets.randbelow(9000) + 1000}"
 
 
 def _create_paid_active_member(db: Session, batch: Batch, request: LiquidRequest) -> BatchMember:

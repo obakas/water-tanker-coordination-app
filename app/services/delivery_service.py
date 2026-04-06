@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import Any, Optional
-import random
+import secrets
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -22,7 +22,7 @@ ACTIVE_STOP_STATUSES = {"pending", "en_route", "arrived", "measuring", "awaiting
 
 
 def _generate_delivery_code() -> str:
-    return str(random.randint(1000, 9999))
+    return f"{secrets.randbelow(9000) + 1000}"
 
 
 def _utcnow() -> datetime:
@@ -326,6 +326,18 @@ def _build_stop_summary(db: Session, current: DeliveryRecord) -> list[dict[str, 
         })
     return summaries
 
+
+
+
+def _activate_next_open_stop(db: Session, delivery: DeliveryRecord) -> DeliveryRecord | None:
+    stops = _get_job_stops(db, delivery)
+    next_stop = next((s for s in stops if s.delivery_status == "pending"), None)
+    if not next_stop:
+        return None
+    next_stop.delivery_status = "en_route"
+    next_stop.dispatched_at = next_stop.dispatched_at or _utcnow()
+    db.add(next_stop)
+    return next_stop
 
 def _finalize_job_if_possible(db: Session, delivery: DeliveryRecord) -> dict[str, Any]:
     stops = _get_job_stops(db, delivery)
@@ -634,10 +646,18 @@ def complete_delivery_stop(db: Session, *, tanker_id: int, delivery_id: int, aut
         tanker.status = "delivering"
     db.add(delivery)
     db.add(tanker)
+    next_stop = _activate_next_open_stop(db, delivery)
     db.commit()
     db.refresh(delivery)
+    if next_stop is not None:
+        db.refresh(next_stop)
     finalize_result = _finalize_job_if_possible(db, delivery) if auto_finalize_job else None
-    return {"message": "Delivery stop completed successfully", "delivery": delivery, "finalize_result": finalize_result}
+    return {
+        "message": "Delivery stop completed successfully",
+        "delivery": delivery,
+        "next_stop": next_stop,
+        "finalize_result": finalize_result,
+    }
 
 
 def fail_delivery_stop(db: Session, *, tanker_id: int, delivery_id: int, reason: str) -> dict[str, Any]:
@@ -654,10 +674,18 @@ def fail_delivery_stop(db: Session, *, tanker_id: int, delivery_id: int, reason:
     delivery.notes = clean_reason
     delivery.failed_at = delivery.failed_at or _utcnow()
     _sync_customer_state_for_stop(db, delivery)
+    next_stop = _activate_next_open_stop(db, delivery)
     db.add(delivery)
     db.commit()
     db.refresh(delivery)
-    return {"message": "Delivery stop marked as failed", "delivery": delivery, "finalize_result": _finalize_job_if_possible(db, delivery)}
+    if next_stop is not None:
+        db.refresh(next_stop)
+    return {
+        "message": "Delivery stop marked as failed",
+        "delivery": delivery,
+        "next_stop": next_stop,
+        "finalize_result": _finalize_job_if_possible(db, delivery),
+    }
 
 
 def skip_delivery_stop(db: Session, *, tanker_id: int, delivery_id: int, reason: str) -> dict[str, Any]:
@@ -674,7 +702,15 @@ def skip_delivery_stop(db: Session, *, tanker_id: int, delivery_id: int, reason:
     delivery.notes = clean_reason
     delivery.skipped_at = delivery.skipped_at or _utcnow()
     _sync_customer_state_for_stop(db, delivery)
+    next_stop = _activate_next_open_stop(db, delivery)
     db.add(delivery)
     db.commit()
     db.refresh(delivery)
-    return {"message": "Delivery stop skipped", "delivery": delivery, "finalize_result": _finalize_job_if_possible(db, delivery)}
+    if next_stop is not None:
+        db.refresh(next_stop)
+    return {
+        "message": "Delivery stop skipped",
+        "delivery": delivery,
+        "next_stop": next_stop,
+        "finalize_result": _finalize_job_if_possible(db, delivery),
+    }

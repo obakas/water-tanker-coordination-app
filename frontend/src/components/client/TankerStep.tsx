@@ -51,15 +51,37 @@ function getBatchTankerState(batch?: BatchLiveResponse | null) {
     };
   }
 
+  const stopStatus = batch.member_delivery_status;
+
+  if (["arrived", "measuring", "awaiting_otp", "delivered"].includes(stopStatus ?? "")) {
+    return {
+      headline: stopStatus === "delivered" ? "Delivery completed" : "Tanker arrived",
+      subtext:
+        stopStatus === "delivered"
+          ? "Your stop has already been completed."
+          : stopStatus === "awaiting_otp"
+            ? "Measurement is done. Share your OTP with the driver to finish this stop."
+            : stopStatus === "measuring"
+              ? "The driver is measuring your water delivery right now."
+              : "The tanker has arrived at your stop.",
+      tankerId: batch.tanker_id ?? null,
+      driverName: batch.driver_name ?? null,
+      driverPhone: batch.tanker_phone ?? null,
+      tankerStatus: batch.tanker_status ?? batch.status ?? null,
+      deliveryStatus: stopStatus ?? null,
+      arrived: true,
+    };
+  }
+
   if (batch.status === "assigned") {
     return {
       headline: "Tanker assigned",
       subtext: "A tanker has been assigned to your batch.",
       tankerId: batch.tanker_id ?? null,
       driverName: batch.driver_name ?? null,
-      driverPhone: null,
+      driverPhone: batch.tanker_phone ?? null,
       tankerStatus: "assigned",
-      deliveryStatus: null,
+      deliveryStatus: stopStatus ?? null,
       arrived: false,
     };
   }
@@ -70,36 +92,23 @@ function getBatchTankerState(batch?: BatchLiveResponse | null) {
       subtext: "The tanker is currently loading water for delivery.",
       tankerId: batch.tanker_id ?? null,
       driverName: batch.driver_name ?? null,
-      driverPhone: null,
+      driverPhone: batch.tanker_phone ?? null,
       tankerStatus: "loading",
-      deliveryStatus: null,
+      deliveryStatus: stopStatus ?? null,
       arrived: false,
     };
   }
 
-  if (batch.status === "delivering") {
+  if (batch.status === "delivering" || stopStatus === "en_route" || stopStatus === "pending") {
     return {
       headline: "Tanker en route",
       subtext: "Your delivery is on the way.",
       tankerId: batch.tanker_id ?? null,
       driverName: batch.driver_name ?? null,
-      driverPhone: null,
-      tankerStatus: "delivering",
-      deliveryStatus: "en_route",
+      driverPhone: batch.tanker_phone ?? null,
+      tankerStatus: batch.tanker_status ?? "delivering",
+      deliveryStatus: stopStatus ?? "en_route",
       arrived: false,
-    };
-  }
-
-  if (batch.status === "arrived") {
-    return {
-      headline: "Tanker arrived",
-      subtext: "The tanker has arrived. You can continue to delivery confirmation.",
-      tankerId: batch.tanker_id ?? null,
-      driverName: batch.driver_name ?? null,
-      driverPhone: null,
-      tankerStatus: "arrived",
-      deliveryStatus: "arrived",
-      arrived: true,
     };
   }
 
@@ -109,7 +118,7 @@ function getBatchTankerState(batch?: BatchLiveResponse | null) {
       subtext: "This batch delivery has already been completed.",
       tankerId: batch.tanker_id ?? null,
       driverName: batch.driver_name ?? null,
-      driverPhone: null,
+      driverPhone: batch.tanker_phone ?? null,
       tankerStatus: "completed",
       deliveryStatus: "delivered",
       arrived: true,
@@ -121,9 +130,9 @@ function getBatchTankerState(batch?: BatchLiveResponse | null) {
     subtext: "We are syncing the latest tanker status.",
     tankerId: batch.tanker_id ?? null,
     driverName: batch.driver_name ?? null,
-    driverPhone: null,
-    tankerStatus: batch.status ?? null,
-    deliveryStatus: null,
+    driverPhone: batch.tanker_phone ?? null,
+    tankerStatus: batch.tanker_status ?? batch.status ?? null,
+    deliveryStatus: stopStatus ?? null,
     arrived: false,
   };
 }

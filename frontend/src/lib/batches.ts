@@ -31,6 +31,31 @@ export interface BatchLiveResponse {
   member_status?: string | null;
   member_payment_status?: string | null;
 
+  member_delivery_id?: number | null;
+  member_delivery_status?:
+    | "pending"
+    | "en_route"
+    | "arrived"
+    | "measuring"
+    | "awaiting_otp"
+    | "delivered"
+    | "failed"
+    | "skipped"
+    | null;
+  member_delivery_code?: string | null;
+  otp_verified?: boolean | null;
+  otp_required?: boolean | null;
+
+  planned_liters?: number | null;
+  actual_liters_delivered?: number | null;
+  meter_start_reading?: number | null;
+  meter_end_reading?: number | null;
+
+  arrived_at?: string | null;
+  measurement_started_at?: string | null;
+  measurement_completed_at?: string | null;
+  delivered_at?: string | null;
+
   refund_status?: string | null;
   refund_amount?: number | null;
   refunded_at?: string | null;

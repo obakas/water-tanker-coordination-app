@@ -65,3 +65,21 @@ class BatchLiveResponse(BaseModel):
     refund_amount: Optional[float] = None
     refunded_at: Optional[datetime.datetime] = None
     refund_reference: Optional[str] = None
+    member_delivery_id: Optional[int] = None
+    member_delivery_status: Optional[Literal["pending", "en_route", "arrived", "measuring", "awaiting_otp", "delivered", "failed", "skipped"]] = None
+    member_delivery_code: Optional[str] = None
+    otp_verified: Optional[bool] = None
+    otp_required: Optional[bool] = None
+
+    planned_liters: Optional[float] = None
+    actual_liters_delivered: Optional[float] = None
+    meter_start_reading: Optional[float] = None
+    meter_end_reading: Optional[float] = None
+
+    arrived_at: Optional[datetime.datetime] = None
+    measurement_started_at: Optional[datetime.datetime] = None
+    measurement_completed_at: Optional[datetime.datetime] = None
+    delivered_at: Optional[datetime.datetime] = None
+
+    failure_reason: Optional[str] = None
+    notes: Optional[str] = None

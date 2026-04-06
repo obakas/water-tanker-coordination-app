@@ -154,6 +154,9 @@ const ClientView = ({ onBack }: ClientViewProps) => {
             livePriorityRequest={livePriorityRequest}
             livePriorityLoading={livePriorityLoading}
             livePriorityError={livePriorityError}
+            liveBatch={liveBatch}
+            liveBatchLoading={liveBatchLoading}
+            liveBatchError={liveBatchError}
           />
         );
 

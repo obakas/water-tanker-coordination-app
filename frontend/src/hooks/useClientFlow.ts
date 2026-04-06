@@ -162,6 +162,19 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     if (!batch) return fallbackStep;
 
     const status = batch.status;
+    const memberDeliveryStatus = batch.member_delivery_status;
+
+    if (memberDeliveryStatus === "failed" || memberDeliveryStatus === "skipped") {
+      return "failed";
+    }
+
+    if (memberDeliveryStatus === "delivered") {
+      return "completed";
+    }
+
+    if (["arrived", "measuring", "awaiting_otp"].includes(memberDeliveryStatus ?? "")) {
+      return "delivery";
+    }
 
     if (["forming", "near_ready", "ready_for_assignment"].includes(status)) {
       return "batch";
@@ -172,7 +185,9 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     }
 
     if (status === "delivering" || status === "arrived") {
-      return "delivery";
+      return memberDeliveryStatus === "en_route" || memberDeliveryStatus === "pending"
+        ? "tanker"
+        : "delivery";
     }
 
     if (status === "completed") {
@@ -180,7 +195,7 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     }
 
     if (status === "partially_completed") {
-      return "partial";
+      return memberDeliveryStatus === "delivered" ? "completed" : "partial";
     }
 
     if (status === "failed") {

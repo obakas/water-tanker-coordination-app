@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { PriorityLiveResponse } from "@/lib/requests";
+import type { BatchLiveResponse } from "@/lib/batches";
 
 interface DeliveryStepProps {
   requestMode: "batch" | "priority";
@@ -20,6 +21,9 @@ interface DeliveryStepProps {
   livePriorityRequest?: PriorityLiveResponse | null;
   livePriorityLoading?: boolean;
   livePriorityError?: string | null;
+  liveBatch?: BatchLiveResponse | null;
+  liveBatchLoading?: boolean;
+  liveBatchError?: string | null;
   onCopyOtp?: () => void | Promise<void>;
 }
 
@@ -100,6 +104,75 @@ function getPriorityDeliveryState(priority?: PriorityLiveResponse | null) {
   };
 }
 
+
+function getBatchDeliveryState(batch?: BatchLiveResponse | null) {
+  if (!batch) {
+    return {
+      headline: "Preparing delivery confirmation",
+      subtext: "We are waiting for your stop-level delivery updates.",
+      arrived: false,
+      measuring: false,
+      awaitingOtp: false,
+      completed: false,
+    };
+  }
+
+  const status = batch.member_delivery_status;
+
+  if (status === "delivered") {
+    return {
+      headline: "Delivery completed",
+      subtext: "Your stop has been completed successfully.",
+      arrived: true,
+      measuring: false,
+      awaitingOtp: false,
+      completed: true,
+    };
+  }
+
+  if (status === "awaiting_otp") {
+    return {
+      headline: "OTP required",
+      subtext: "Measurement is complete. Share the OTP with the driver to finish your stop.",
+      arrived: true,
+      measuring: false,
+      awaitingOtp: true,
+      completed: false,
+    };
+  }
+
+  if (status === "measuring") {
+    return {
+      headline: "Measurement in progress",
+      subtext: "The driver is currently measuring your water delivery.",
+      arrived: true,
+      measuring: true,
+      awaitingOtp: false,
+      completed: false,
+    };
+  }
+
+  if (status === "arrived") {
+    return {
+      headline: "Tanker arrived",
+      subtext: "The tanker is at your location and delivery is starting.",
+      arrived: true,
+      measuring: false,
+      awaitingOtp: false,
+      completed: false,
+    };
+  }
+
+  return {
+    headline: "Delivery in progress",
+    subtext: "We are waiting for the next update for your stop.",
+    arrived: false,
+    measuring: false,
+    awaitingOtp: false,
+    completed: false,
+  };
+}
+
 export default function DeliveryStep({
   requestMode,
   otp,
@@ -107,34 +180,37 @@ export default function DeliveryStep({
   livePriorityRequest,
   livePriorityLoading = false,
   livePriorityError = null,
+  liveBatch,
+  liveBatchLoading = false,
+  liveBatchError = null,
   onCopyOtp,
 }: DeliveryStepProps) {
   const isPriority = requestMode === "priority";
   const priorityState = getPriorityDeliveryState(livePriorityRequest);
+  const batchState = getBatchDeliveryState(liveBatch);
+  const effectiveState = isPriority ? priorityState : batchState;
 
   const effectiveOtp = isPriority
     ? livePriorityRequest?.otp ?? otp
-    : otp;
+    : liveBatch?.member_delivery_code ?? liveBatch?.otp ?? otp;
 
   const isCompleted = isPriority
-    ? priorityState.completed
-    : false;
+    ? effectiveState.completed
+    : batchState.completed;
 
   const canConfirm = isPriority
     ? isCompleted || !!livePriorityRequest?.otp_verified || livePriorityRequest?.delivery_status === "delivered"
-    : true;
+    : isCompleted || !!liveBatch?.otp_verified || liveBatch?.member_delivery_status === "delivered";
 
   return (
     <div className="space-y-6">
       <div className="rounded-2xl border bg-card p-5 shadow-sm">
         <div className="space-y-2">
           <h2 className="text-xl font-bold text-foreground">
-            {isPriority ? priorityState.headline : "Delivery Confirmation"}
+            {effectiveState.headline}
           </h2>
           <p className="text-sm text-muted-foreground">
-            {isPriority
-              ? priorityState.subtext
-              : "Share your OTP only after the driver has measured the water correctly."}
+            {effectiveState.subtext}
           </p>
         </div>
       </div>
@@ -170,7 +246,7 @@ export default function DeliveryStep({
         </div>
       </div>
 
-      {isPriority && (
+      {(isPriority || !!liveBatch) && (
         <>
           <div className="rounded-2xl border bg-card p-5 shadow-sm">
             <div className="mb-4">
@@ -184,7 +260,7 @@ export default function DeliveryStep({
 
             <div className="space-y-3">
               <div className="flex items-center gap-3">
-                {priorityState.arrived ? (
+                {effectiveState.arrived ? (
                   <CheckCircle2 className="h-5 w-5 text-primary" />
                 ) : (
                   <Clock3 className="h-5 w-5 text-muted-foreground" />
@@ -193,8 +269,9 @@ export default function DeliveryStep({
               </div>
 
               <div className="flex items-center gap-3">
-                {priorityState.measuring ||
-                livePriorityRequest?.measurement_completed_at ? (
+                {effectiveState.measuring ||
+                livePriorityRequest?.measurement_completed_at ||
+                liveBatch?.measurement_completed_at ? (
                   <CheckCircle2 className="h-5 w-5 text-primary" />
                 ) : (
                   <Clock3 className="h-5 w-5 text-muted-foreground" />
@@ -203,9 +280,11 @@ export default function DeliveryStep({
               </div>
 
               <div className="flex items-center gap-3">
-                {priorityState.awaitingOtp ||
+                {effectiveState.awaitingOtp ||
                 !!livePriorityRequest?.otp_verified ||
-                livePriorityRequest?.delivery_status === "delivered" ? (
+                !!liveBatch?.otp_verified ||
+                livePriorityRequest?.delivery_status === "delivered" ||
+                liveBatch?.member_delivery_status === "delivered" ? (
                   <CheckCircle2 className="h-5 w-5 text-primary" />
                 ) : (
                   <Clock3 className="h-5 w-5 text-muted-foreground" />
@@ -214,7 +293,7 @@ export default function DeliveryStep({
               </div>
 
               <div className="flex items-center gap-3">
-                {priorityState.completed ? (
+                {effectiveState.completed ? (
                   <CheckCircle2 className="h-5 w-5 text-primary" />
                 ) : (
                   <Clock3 className="h-5 w-5 text-muted-foreground" />
@@ -232,7 +311,7 @@ export default function DeliveryStep({
                   Delivery Status
                 </div>
                 <p className="font-semibold text-foreground">
-                  {livePriorityRequest?.delivery_status ?? "Waiting"}
+                  {isPriority ? (livePriorityRequest?.delivery_status ?? "Waiting") : (liveBatch?.member_delivery_status ?? "Waiting")}
                 </p>
               </div>
 
@@ -242,7 +321,7 @@ export default function DeliveryStep({
                   OTP Verified
                 </div>
                 <p className="font-semibold text-foreground">
-                  {livePriorityRequest?.otp_verified ? "Yes" : "No"}
+                  {(isPriority ? livePriorityRequest?.otp_verified : liveBatch?.otp_verified) ? "Yes" : "No"}
                 </p>
               </div>
 
@@ -252,8 +331,8 @@ export default function DeliveryStep({
                   Planned Liters
                 </div>
                 <p className="font-semibold text-foreground">
-                  {livePriorityRequest?.planned_liters != null
-                    ? `${Number(livePriorityRequest.planned_liters).toLocaleString()}L`
+                  {(isPriority ? livePriorityRequest?.planned_liters : liveBatch?.planned_liters) != null
+                    ? `${Number(isPriority ? livePriorityRequest?.planned_liters : liveBatch?.planned_liters).toLocaleString()}L`
                     : "—"}
                 </p>
               </div>
@@ -264,9 +343,11 @@ export default function DeliveryStep({
                   Actual Delivered
                 </div>
                 <p className="font-semibold text-foreground">
-                  {livePriorityRequest?.actual_liters_delivered != null
+                  {(isPriority ? livePriorityRequest?.actual_liters_delivered : liveBatch?.actual_liters_delivered) != null
                     ? `${Number(
-                        livePriorityRequest.actual_liters_delivered
+                        isPriority
+                          ? livePriorityRequest?.actual_liters_delivered
+                          : liveBatch?.actual_liters_delivered
                       ).toLocaleString()}L`
                     : "—"}
                 </p>
@@ -277,7 +358,7 @@ export default function DeliveryStep({
                   Arrived At
                 </p>
                 <p className="mt-1 text-sm font-medium text-foreground">
-                  {formatDateTime(livePriorityRequest?.arrived_at)}
+                  {formatDateTime(isPriority ? livePriorityRequest?.arrived_at : liveBatch?.arrived_at)}
                 </p>
               </div>
 
@@ -286,13 +367,13 @@ export default function DeliveryStep({
                   Delivered At
                 </p>
                 <p className="mt-1 text-sm font-medium text-foreground">
-                  {formatDateTime(livePriorityRequest?.delivered_at)}
+                  {formatDateTime(isPriority ? livePriorityRequest?.delivered_at : liveBatch?.delivered_at)}
                 </p>
               </div>
             </div>
           </div>
 
-          {livePriorityLoading && (
+          {(isPriority ? livePriorityLoading : liveBatchLoading) && (
             <div className="rounded-2xl border bg-card p-4 shadow-sm">
               <div className="flex items-center gap-3 text-muted-foreground">
                 <Loader2 className="h-5 w-5 animate-spin" />
@@ -301,7 +382,7 @@ export default function DeliveryStep({
             </div>
           )}
 
-          {livePriorityError && (
+          {(isPriority ? livePriorityError : liveBatchError) && (
             <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-4 shadow-sm">
               <div className="flex items-start gap-3">
                 <AlertCircle className="mt-0.5 h-5 w-5 text-destructive" />
@@ -310,7 +391,7 @@ export default function DeliveryStep({
                     Could not refresh delivery status
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    {livePriorityError}
+                    {isPriority ? livePriorityError : liveBatchError}
                   </p>
                 </div>
               </div>
@@ -338,9 +419,9 @@ export default function DeliveryStep({
         type="button"
         className="w-full"
         onClick={onConfirm}
-        disabled={isPriority ? !canConfirm : false}
+        disabled={!canConfirm}
       >
-        {isPriority && isCompleted ? "Continue" : "Confirm Delivery"}
+        {isCompleted ? "Continue" : "Confirm Delivery"}
       </Button>
     </div>
   );
