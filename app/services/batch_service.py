@@ -145,7 +145,7 @@ def _get_committed_volume_for_batch(db: Session, batch_id: int) -> float:
         .all()
     )
 
-    valid_statuses = {"active", "delivered", "pending"}
+    valid_statuses = {"active", "delivered"}
     valid_payment_statuses = {"paid"}
 
     committed_members = [
@@ -211,23 +211,47 @@ def find_or_create_batch(db: Session, request: LiquidRequest) -> dict[str, Any]:
         .all()
     )
 
+    # best_batch: Batch | None = None
+    # best_distance: float | None = None
+
+    # for batch in batches:
+    #     if not _batch_can_accept_request(db, batch, request):
+    #         continue
+
+    #     distance_km = calculate_distance_km(
+    #         batch.longitude,
+    #         batch.latitude,
+    #         request.longitude,
+    #         request.latitude,
+    #     )
+
+    #     if best_batch is None or distance_km < (best_distance or float("inf")):
+    #         best_batch = batch
+    #         best_distance = distance_km
+
     best_batch: Batch | None = None
-    best_distance: float | None = None
+    best_score: float | None = None
 
     for batch in batches:
         if not _batch_can_accept_request(db, batch, request):
             continue
 
-        distance_km = calculate_distance_km(
-            batch.longitude,
-            batch.latitude,
-            request.longitude,
-            request.latitude,
-        )
+    committed_volume = _get_committed_volume_for_batch(db, batch.id)
 
-        if best_batch is None or distance_km < (best_distance or float("inf")):
-            best_batch = batch
-            best_distance = distance_km
+    distance_km = calculate_distance_km(
+        batch.longitude,
+        batch.latitude,
+        request.longitude,
+        request.latitude,
+    )
+
+    # 🎯 SCORING STRATEGY
+    # prioritize fill first, distance second
+    score = committed_volume - (distance_km * 10)
+
+    if best_batch is None or score > (best_score or float("-inf")):
+        best_batch = batch
+        best_score = score
 
     if best_batch:
         return attach_request_to_batch(db, best_batch, request)
