@@ -29,6 +29,10 @@ def on_startup():
 def on_shutdown():
     stop_scheduler()
 
+@app.get("/")
+def health_check():
+    return {"status": "ok"}
+
 
 Base.metadata.create_all(bind=engine)
 
