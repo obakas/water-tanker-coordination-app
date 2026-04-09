@@ -1,17 +1,28 @@
 import { Loader2, CheckCircle2, Droplets, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import LiveDeliveryMap from "@/components/shared/LiveDeliveryMap";
 import type { DriverJob } from "@/types/driver";
 
 interface DriverLoadingStepProps {
   job: DriverJob;
   isLoading: boolean;
   onMarkLoaded: () => void | Promise<void>;
+  driverLatitude?: number | null;
+  driverLongitude?: number | null;
+  nextStopLatitude?: number | null;
+  nextStopLongitude?: number | null;
+  lastLocationUpdateAt?: string | null;
 }
 
 export const DriverLoadingStep = ({
   job,
   isLoading,
   onMarkLoaded,
+  driverLatitude,
+  driverLongitude,
+  nextStopLatitude,
+  nextStopLongitude,
+  lastLocationUpdateAt,
 }: DriverLoadingStepProps) => {
   return (
     <div className="space-y-6">
@@ -26,6 +37,26 @@ export const DriverLoadingStep = ({
           Confirm when the tanker is loaded and ready to move.
         </p>
       </div>
+
+      <LiveDeliveryMap
+        title="Driver map"
+        subtitle="Your current location and the next delivery point."
+        driver={{
+          label: "Your tanker",
+          latitude: driverLatitude,
+          longitude: driverLongitude,
+          kind: "driver",
+          description: "Current tanker location",
+        }}
+        nextStop={{
+          label: "Next stop",
+          latitude: nextStopLatitude,
+          longitude: nextStopLongitude,
+          kind: "next_stop",
+          description: "First delivery point after loading",
+        }}
+        lastUpdatedAt={lastLocationUpdateAt}
+      />
 
       <div className="space-y-3 rounded-xl border border-border bg-card p-5">
         <div className="flex justify-between text-sm">

@@ -23,6 +23,12 @@ export interface PriorityLiveResponse {
   driver_name: string | null;
   tanker_phone: string | null;
   tanker_status: string | null;
+  tanker_latitude: number | null;
+  tanker_longitude: number | null;
+  last_location_update_at: string | null;
+
+  customer_latitude: number | null;
+  customer_longitude: number | null;
 
   delivery_id: number | null;
   delivery_status:

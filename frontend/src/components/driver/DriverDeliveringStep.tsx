@@ -1,5 +1,6 @@
 import { MapPin, Phone, Droplets, CheckCircle2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import LiveDeliveryMap from "@/components/shared/LiveDeliveryMap";
 import type { DriverStop } from "@/types/driver";
 
 interface DriverDeliveringStepProps {
@@ -71,6 +72,9 @@ export const DriverDeliveringStep = ({
   onFailStop,
   onSkipStop,
   onReset,
+  driverLatitude,
+  driverLongitude,
+  lastLocationUpdateAt,
 }: DriverDeliveringStepProps) => {
   const canArrive = allowedActions.includes("arrive");
   const canStartMeasurement = allowedActions.includes("start_measurement");

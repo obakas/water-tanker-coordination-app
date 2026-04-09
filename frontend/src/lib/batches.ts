@@ -22,7 +22,14 @@ export interface BatchLiveResponse {
 
   tanker_id?: number | null;
   driver_name?: string | null;
-  tank_plate_number?: string | null;
+  tanker_status?: string | null;
+  tanker_phone?: string | null;
+  tanker_latitude?: number | null;
+  tanker_longitude?: number | null;
+  last_location_update_at?: string | null;
+
+  customer_latitude?: number | null;
+  customer_longitude?: number | null;
 
   otp?: string | null;
   is_member_active?: boolean | null;

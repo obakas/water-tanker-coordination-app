@@ -41,18 +41,27 @@ async function apiRequest<T>(
    DRIVER LOCATION ENDPOINTS
 ========================= */
 
+export interface TankerLocationResponse {
+  tanker_id: number;
+  latitude: number | null;
+  longitude: number | null;
+  last_location_update_at: string | null;
+  tanker_status: string;
+  is_available: boolean;
+}
+
 export async function updateDriverLocation(
   tankerId: number,
   payload: { latitude: number; longitude: number }
 ) {
-  return apiRequest(`/tankers/${tankerId}/location`, {
+  return apiRequest<TankerLocationResponse>(`/tankers/${tankerId}/location`, {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
 export async function getDriverLocation(tankerId: number) {
-  return apiRequest(`/tankers/${tankerId}/location`);
+  return apiRequest<TankerLocationResponse>(`/tankers/${tankerId}/location`);
 }
 
 /* =========================

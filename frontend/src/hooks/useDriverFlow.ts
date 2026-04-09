@@ -24,6 +24,8 @@ import {
   type DriverCurrentJobResponse,
   type DriverCurrentStopResponse,
   type IncomingDriverOffer,
+  type TankerLocationResponse,
+  getDriverLocation,
 } from "@/lib/driverApi";
 import { useDriverLocationHeartbeat } from "./useDriverLocationHeartbeat";
 
@@ -173,6 +175,7 @@ export const useDriverFlow = (driver: DriverUser | null) => {
   const [jobResponse, setJobResponse] = useState<DriverCurrentJobResponse | null>(null);
   const [stopResponse, setStopResponse] = useState<DriverCurrentStopResponse | null>(null);
   const [incomingOffer, setIncomingOffer] = useState<IncomingDriverOffer | null>(null);
+  const [driverLocation, setDriverLocation] = useState<TankerLocationResponse | null>(null);
 
   const [isLoading, setIsLoading] = useState(false);
   const [isActionLoading, setIsActionLoading] = useState(false);
@@ -200,10 +203,11 @@ export const useDriverFlow = (driver: DriverUser | null) => {
 
     setIsLoading(true);
 
-    const [offerResult, jobResult, stopResult] = await Promise.allSettled([
+    const [offerResult, jobResult, stopResult, locationResult] = await Promise.allSettled([
       fetchIncomingOffer(tankerId),
       fetchCurrentDriverJob(tankerId),
       fetchCurrentStop(tankerId),
+      getDriverLocation(tankerId),
     ]);
 
     const offer =
@@ -214,9 +218,12 @@ export const useDriverFlow = (driver: DriverUser | null) => {
     const job = jobResult.status === "fulfilled" ? jobResult.value : null;
     const stop = stopResult.status === "fulfilled" ? stopResult.value : null;
 
+    const location = locationResult.status === "fulfilled" ? locationResult.value : null;
+
     setIncomingOffer(offer);
     setJobResponse(job);
     setStopResponse(stop);
+    setDriverLocation(location);
 
     if (stop?.current_stop) {
       setHadActiveStop(true);

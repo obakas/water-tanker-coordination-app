@@ -1,23 +1,24 @@
-# from fastapi import FastAPI
-
-# app = FastAPI()
-
-# @app.get("/")
-# def health_check():
-#     return {"status": "ok"}
-
-
-
 from fastapi import FastAPI
-from app.core.database import Base, engine
 from fastapi.middleware.cors import CORSMiddleware
+
+from app.core.database import Base, engine
 from app.core.scheduler import start_scheduler, stop_scheduler
-
-# from app.models import user, batch, request, payment, tanker
-
-from app.api.routes import requests, batches, tankers, payments, auth, users, batches, batch_members, refunds, deliveries, histories
+from app.core.config import settings
+from app.api.routes import (
+    requests,
+    batches,
+    tankers,
+    payments,
+    auth,
+    users,
+    batch_members,
+    refunds,
+    deliveries,
+    histories,
+)
 
 app = FastAPI()
+
 
 @app.on_event("startup")
 def on_startup():
@@ -28,10 +29,18 @@ def on_startup():
 def on_shutdown():
     stop_scheduler()
 
+
 Base.metadata.create_all(bind=engine)
 
+# origins = [
+#     settings.FRONTEND_URL,
+#     "http://localhost:5173",
+#     "http://127.0.0.1:5173",
+# ]
+
 origins = [
-    "http://localhost:5173",  # my frontend
+    settings.FRONTEND_URL,
+    "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:8080",
     "http://127.0.0.1:8080",
@@ -54,9 +63,7 @@ app.include_router(tankers.router)
 app.include_router(payments.router)
 app.include_router(auth.router)
 app.include_router(users.router)
-app.include_router(batches.router)
 app.include_router(batch_members.router)
 app.include_router(refunds.router)
 app.include_router(deliveries.router)
 app.include_router(histories.router)
-

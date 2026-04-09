@@ -8,6 +8,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import LiveDeliveryMap from "@/components/shared/LiveDeliveryMap";
 import type { BatchLiveResponse } from "@/lib/batches";
 import type { PriorityLiveResponse } from "@/lib/requests";
 

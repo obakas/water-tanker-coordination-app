@@ -140,6 +140,7 @@ const DriverView = ({ onBack }: DriverViewProps) => {
     setActiveTab,
     startLoading,
     nextInstruction,
+    driverLocation,
   } = useDriverFlow(driver);
 
   const renderDashboard = () => {
@@ -229,6 +230,11 @@ const DriverView = ({ onBack }: DriverViewProps) => {
               job={activeJob}
               isLoading={isActionLoading}
               onMarkLoaded={markLoaded}
+              driverLatitude={driverLocation?.latitude}
+              driverLongitude={driverLocation?.longitude}
+              nextStopLatitude={activeJob?.stops?.[0]?.latitude}
+              nextStopLongitude={activeJob?.stops?.[0]?.longitude}
+              lastLocationUpdateAt={driverLocation?.last_location_update_at}
             />
           </div>
         );
@@ -276,6 +282,9 @@ const DriverView = ({ onBack }: DriverViewProps) => {
             onFailStop={failCurrentStop}
             onSkipStop={skipCurrentStop}
             onReset={resetToDashboard}
+            driverLatitude={driverLocation?.latitude}
+            driverLongitude={driverLocation?.longitude}
+            lastLocationUpdateAt={driverLocation?.last_location_update_at}
           />
         );
 
