@@ -108,7 +108,7 @@ function getBatchTankerState(batch?: BatchLiveResponse | null) {
       driverName: batch.driver_name ?? null,
       driverPhone: batch.tanker_phone ?? null,
       tankerStatus: batch.tanker_status ?? "delivering",
-      deliveryStatus: stopStatus ?? "en_route",
+      deliveryStatus: stopStatus ?? "en route",
       arrived: false,
     };
   }
