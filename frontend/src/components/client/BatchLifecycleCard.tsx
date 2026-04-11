@@ -144,13 +144,12 @@ export function BatchLifecycleCard({
 
                 <div className="min-w-0 flex-1">
                   <p
-                    className={`text-sm ${
-                      isCurrent
-                        ? "font-semibold text-foreground"
-                        : isComplete
+                    className={`text-sm ${isCurrent
+                      ? "font-semibold text-foreground"
+                      : isComplete
                         ? "text-foreground"
                         : "text-muted-foreground"
-                    }`}
+                      }`}
                   >
                     {stepLabels[step]}
                   </p>
@@ -207,56 +206,65 @@ export function BatchLifecycleCard({
             <Users className="h-4 w-4" />
             Members
           </div>
-
-          <p className="text-2xl font-bold text-foreground">{batch.member_count}</p>
-
-          <p className="text-sm text-muted-foreground">
-            Active paid members currently in this batch
-          </p>
-        </div>
-
-        <div className="rounded-xl border p-4">
-          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-foreground">
-            <Truck className="h-4 w-4" />
-            Tanker
-          </div>
-
-          {batch.tanker_id ? (
+          {batch.member_count === 1 ? (
             <>
-              <p className="font-semibold text-foreground">Tanker #{batch.tanker_id}</p>
+              <p className="text-2xl font-bold text-foreground">{batch.member_count}</p>
+
               <p className="text-sm text-muted-foreground">
-                Driver: {batch.driver_name ?? "Assigned"}
+                Active paid member currently in this batch
               </p>
             </>
-          ) : (
-            <p className="text-sm text-muted-foreground">No tanker assigned yet</p>
-          )}
-        </div>
+          ) : (<>
+            <p className="text-2xl font-bold text-foreground">{batch.member_count}</p>
 
-        <div className="rounded-xl border p-4">
-          <div className="mb-2 text-sm font-medium text-foreground">
-            Your Membership
+            <p className="text-sm text-muted-foreground">
+              Active paid members currently in this batch
+            </p>
+          </>)}
+
+          <div className="rounded-xl border p-4">
+            <div className="mb-2 flex items-center gap-2 text-sm font-medium text-foreground">
+              <Truck className="h-4 w-4" />
+              Tanker
+            </div>
+
+            {batch.tanker_id ? (
+              <>
+                <p className="font-semibold text-foreground">Tanker #{batch.tanker_id}</p>
+                <p className="text-sm text-muted-foreground">
+                  Driver: {batch.driver_name ?? "Assigned"}
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">No tanker assigned yet</p>
+            )}
           </div>
 
-          <p className="text-sm text-muted-foreground">
-            Status: <span className="font-medium">{batch.member_status ?? "Unknown"}</span>
-          </p>
+          <div className="rounded-xl border p-4">
+            <div className="mb-2 text-sm font-medium text-foreground">
+              Your Membership
+            </div>
 
-          <p className="text-sm text-muted-foreground">
-            Payment:{" "}
-            <span className="font-medium">
-              {batch.member_payment_status ?? "Unknown"}
-            </span>
-          </p>
+            <p className="text-sm text-muted-foreground">
+              Status: <span className="font-medium">{batch.member_status ?? "Unknown"}</span>
+            </p>
 
-          {typeof batch.refund_eligible === "boolean" && (
-            <p className="mt-2 text-sm text-muted-foreground">
-              Refund eligible:{" "}
+            <p className="text-sm text-muted-foreground">
+              Payment:{" "}
               <span className="font-medium">
-                {batch.refund_eligible ? "Yes" : "No"}
+                {batch.member_payment_status ?? "Unknown"}
               </span>
             </p>
-          )}
+
+            {typeof batch.refund_eligible === "boolean" && (
+              <p className="mt-2 text-sm text-muted-foreground">
+                Refund eligible:{" "}
+                <span className="font-medium">
+                  {batch.refund_eligible ? "Yes" : "No"}
+                </span>
+              </p>
+            )}
+          </div>
         </div>
       </div>
     </div>
