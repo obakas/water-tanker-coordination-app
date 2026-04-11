@@ -1,4 +1,5 @@
 from collections import defaultdict
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.request import LiquidRequest
@@ -27,18 +28,76 @@ def get_user_history(db: Session, user_id: int):
         )
 
         batch = None
-        if member:
+        if member and member.batch_id:
             batch = db.query(Batch).filter(Batch.id == member.batch_id).first()
 
-        delivery = (
-            db.query(DeliveryRecord)
-            .filter(
-                DeliveryRecord.user_id == user_id,
-                DeliveryRecord.request_id == request.id,
+        delivery = None
+
+        if request.delivery_type == "batch":
+            # Batch records are often linked by member/stop, not always by request_id.
+            # Try the most specific batch-member links first, then fallback safely.
+            batch_filters = []
+
+            if member:
+                batch_filters.extend([
+                    DeliveryRecord.member_id == member.id,
+                    DeliveryRecord.batch_member_id == member.id,
+                ])
+
+            if batch and batch.id:
+                batch_filters.append(
+                    (
+                        (DeliveryRecord.batch_id == batch.id) &
+                        (
+                            (DeliveryRecord.user_id == user_id) |
+                            (DeliveryRecord.request_id == request.id)
+                        )
+                    )
+                )
+
+            if batch_filters:
+                delivery = (
+                    db.query(DeliveryRecord)
+                    .filter(
+                        DeliveryRecord.job_type == "batch",
+                        or_(*batch_filters),
+                    )
+                    .order_by(
+                        DeliveryRecord.updated_at.desc(),
+                        DeliveryRecord.id.desc(),
+                    )
+                    .first()
+                )
+
+        else:
+            # Priority history can still use request_id directly
+            delivery = (
+                db.query(DeliveryRecord)
+                .filter(
+                    DeliveryRecord.job_type == "priority",
+                    DeliveryRecord.request_id == request.id,
+                )
+                .order_by(
+                    DeliveryRecord.updated_at.desc(),
+                    DeliveryRecord.id.desc(),
+                )
+                .first()
             )
-            .order_by(DeliveryRecord.id.desc())
-            .first()
-        )
+
+            # Extra fallback in case old data was saved without request_id
+            if not delivery:
+                delivery = (
+                    db.query(DeliveryRecord)
+                    .filter(
+                        DeliveryRecord.job_type == "priority",
+                        DeliveryRecord.user_id == user_id,
+                    )
+                    .order_by(
+                        DeliveryRecord.updated_at.desc(),
+                        DeliveryRecord.id.desc(),
+                    )
+                    .first()
+                )
 
         tanker = None
         if delivery and delivery.tanker_id:
@@ -46,13 +105,41 @@ def get_user_history(db: Session, user_id: int):
         elif batch and batch.tanker_id:
             tanker = db.query(Tanker).filter(Tanker.id == batch.tanker_id).first()
 
+        # Better fallbacks so order history does not look empty even if one field is missing
+        resolved_completed_at = (
+            request.completed_at
+            or (delivery.delivered_at if delivery else None)
+        )
+
+        resolved_delivery_status = (
+            delivery.delivery_status
+            if delivery
+            else (
+                "delivered"
+                if request.status == "completed"
+                else None
+            )
+        )
+
+        resolved_delivered_liters = None
+        if delivery:
+            resolved_delivered_liters = (
+                delivery.actual_liters_delivered
+                if delivery.actual_liters_delivered is not None
+                else delivery.planned_liters
+            )
+        else:
+            # For completed requests with no delivery row found, at least show requested volume
+            if request.status == "completed":
+                resolved_delivered_liters = request.volume_liters
+
         items.append({
             "request_id": request.id,
             "delivery_type": request.delivery_type,
             "request_status": request.status,
             "volume_liters": request.volume_liters,
             "created_at": getattr(request, "created_at", None),
-            "completed_at": request.completed_at,
+            "completed_at": resolved_completed_at,
             "assignment_failed_reason": getattr(request, "assignment_failed_reason", None),
             "refund_eligible": getattr(request, "refund_eligible", False),
 
@@ -68,9 +155,9 @@ def get_user_history(db: Session, user_id: int):
             "driver_name": tanker.driver_name if tanker else None,
 
             "delivery_id": delivery.id if delivery else None,
-            "delivery_status": delivery.delivery_status if delivery else None,
-            "planned_liters": delivery.planned_liters if delivery else None,
-            "actual_liters_delivered": delivery.actual_liters_delivered if delivery else None,
+            "delivery_status": resolved_delivery_status,
+            "planned_liters": delivery.planned_liters if delivery else request.volume_liters,
+            "actual_liters_delivered": resolved_delivered_liters,
             "otp_verified": delivery.otp_verified if delivery else None,
             "delivered_at": delivery.delivered_at if delivery else None,
         })
@@ -80,7 +167,6 @@ def get_user_history(db: Session, user_id: int):
         "total": len(items),
         "items": items,
     }
-
 
 def get_tanker_history(db: Session, tanker_id: int):
     deliveries = (

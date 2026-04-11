@@ -135,9 +135,13 @@ export default function OrderHistoryTab({ userId }: Props) {
                             <p className="text-muted-foreground">Request Status</p>
                             <p>{prettyStatus(item.request_status)}</p>
                         </div>
-                        <div>
+                        {/* <div>
                             <p className="text-muted-foreground">Delivery Status</p>
                             <p>{prettyStatus(item.delivery_status)}</p>
+                        </div> */}
+                        <div>
+                            <p className="text-muted-foreground">Delivery Status</p>
+                            <p>{prettyStatus(item.delivery_status || item.batch_status || item.request_status)}</p>
                         </div>
                         {item.delivery_type === "batch" && (
                             <>
