@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { fetchClientHistory, type ClientHistoryItem } from "@/lib/history";
+import { formatNigeriaDateTime, formatNigeriaTime } from "@/lib/datetime";
 
-function formatDate(value: string | null) {
-    if (!value) return "—";
-    return new Date(value).toLocaleString();
-}
+// function formatDate(value: string | null) {
+//     if (!value) return "—";
+//     return new Date(value).toLocaleString();
+// }
 
 function prettyStatus(value: string | null | undefined) {
     if (!value) return "—";
@@ -117,11 +118,11 @@ export default function OrderHistoryTab({ userId }: Props) {
                     <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                         <div>
                             <p className="text-muted-foreground">Created</p>
-                            <p>{formatDate(item.created_at)}</p>
+                            <p>{formatNigeriaDateTime(item.created_at)}</p>
                         </div>
                         <div>
                             <p className="text-muted-foreground">Completed</p>
-                            <p>{formatDate(item.completed_at || item.delivered_at)}</p>
+                            <p>{formatNigeriaDateTime(item.completed_at || item.delivered_at)}</p>
                         </div>
                         <div>
                             <p className="text-muted-foreground">Driver</p>
