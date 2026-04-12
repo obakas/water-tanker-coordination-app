@@ -1,5 +1,19 @@
 import { apiRequest } from "@/lib/api";
 
+const ADMIN_SECRET_STORAGE_KEY = "water-admin-secret";
+
+export const getAdminSecret = () => localStorage.getItem(ADMIN_SECRET_STORAGE_KEY) || "";
+export const setAdminSecret = (secret: string) => localStorage.setItem(ADMIN_SECRET_STORAGE_KEY, secret.trim());
+export const clearAdminSecret = () => localStorage.removeItem(ADMIN_SECRET_STORAGE_KEY);
+
+function adminRequest<T>(endpoint: string, options: { method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; body?: unknown } = {}) {
+  const secret = getAdminSecret();
+  return apiRequest<T>(endpoint, {
+    ...options,
+    headers: secret ? { "X-Admin-Secret": secret } : {},
+  });
+}
+
 export interface AdminOverviewResponse {
   generated_at: string;
   totals: Record<string, number>;
@@ -70,34 +84,12 @@ export interface AdminDeliveryCard {
   failure_reason?: string | null;
   skip_reason?: string | null;
   notes?: string | null;
+  created_at?: string | null;
   updated_at?: string | null;
   arrived_at?: string | null;
   delivered_at?: string | null;
   failed_at?: string | null;
   skipped_at?: string | null;
-}
-
-export interface AdminPriorityRequest {
-  id: number;
-  status: string;
-  user_id: number;
-  volume_liters: number;
-  is_asap: boolean;
-  scheduled_for?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-  retry_count: number;
-  refund_eligible: boolean;
-  latitude: number;
-  longitude: number;
-}
-
-export interface AdminLiveResponse {
-  generated_at: string;
-  batches: AdminBatchCard[];
-  tankers: AdminTankerCard[];
-  deliveries: AdminDeliveryCard[];
-  priority_requests: AdminPriorityRequest[];
 }
 
 export interface AdminRequestItem {
@@ -126,24 +118,79 @@ export interface AdminPaymentItem {
   status: string;
 }
 
-export const getAdminOverview = () => apiRequest<AdminOverviewResponse>("/admin/overview");
-export const getAdminLive = (limit = 20) => apiRequest<AdminLiveResponse>(`/admin/live?limit=${limit}`);
-export const getAdminRequests = (limit = 50) => apiRequest<{ items: AdminRequestItem[] }>(`/admin/requests?limit=${limit}`);
-export const getAdminPayments = (limit = 50) => apiRequest<{ items: AdminPaymentItem[] }>(`/admin/payments?limit=${limit}`);
-export const getAdminTankers = (limit = 50) => apiRequest<{ items: AdminTankerCard[] }>(`/admin/tankers?limit=${limit}`);
-export const getAdminDeliveries = (limit = 50) => apiRequest<{ items: AdminDeliveryCard[] }>(`/admin/deliveries?limit=${limit}`);
+export interface AdminRequestDetailResponse {
+  request: AdminRequestItem;
+  user?: { id: number; name: string; phone: string; address: string } | null;
+  member?: { id: number; status?: string | null; payment_status?: string | null; amount_paid?: number | null; joined_at?: string | null } | null;
+  batch?: AdminBatchCard | null;
+  tanker?: AdminTankerCard | null;
+  payments: AdminPaymentItem[];
+  deliveries: AdminDeliveryCard[];
+}
+
+export interface AdminLiveResponse {
+  generated_at: string;
+  batches: AdminBatchCard[];
+  tankers: AdminTankerCard[];
+  deliveries: AdminDeliveryCard[];
+  priority_requests: AdminRequestItem[];
+}
+
+export const getAdminSession = () => adminRequest<{ ok: boolean; message: string }>("/admin/session");
+export const getAdminOverview = () => adminRequest<AdminOverviewResponse>("/admin/overview");
+export const getAdminLive = (limit = 20) => adminRequest<AdminLiveResponse>(`/admin/live?limit=${limit}`);
+export const getAdminRequests = (params?: { limit?: number; deliveryType?: string; status?: string; search?: string }) => {
+  const q = new URLSearchParams();
+  if (params?.limit) q.set("limit", String(params.limit));
+  if (params?.deliveryType) q.set("delivery_type", params.deliveryType);
+  if (params?.status) q.set("status", params.status);
+  if (params?.search) q.set("search", params.search);
+  return adminRequest<{ items: AdminRequestItem[] }>(`/admin/requests?${q.toString()}`);
+};
+export const getAdminRequestDetail = (requestId: number) => adminRequest<AdminRequestDetailResponse>(`/admin/requests/${requestId}`);
+export const getAdminPayments = (params?: { limit?: number; status?: string; search?: string }) => {
+  const q = new URLSearchParams();
+  if (params?.limit) q.set("limit", String(params.limit));
+  if (params?.status) q.set("status", params.status);
+  if (params?.search) q.set("search", params.search);
+  return adminRequest<{ items: AdminPaymentItem[] }>(`/admin/payments?${q.toString()}`);
+};
+export const getAdminTankers = (params?: { limit?: number; status?: string; search?: string }) => {
+  const q = new URLSearchParams();
+  if (params?.limit) q.set("limit", String(params.limit));
+  if (params?.status) q.set("status", params.status);
+  if (params?.search) q.set("search", params.search);
+  return adminRequest<{ items: AdminTankerCard[] }>(`/admin/tankers?${q.toString()}`);
+};
+export const getAdminDeliveries = (params?: { limit?: number; status?: string; jobType?: string; search?: string }) => {
+  const q = new URLSearchParams();
+  if (params?.limit) q.set("limit", String(params.limit));
+  if (params?.status) q.set("status", params.status);
+  if (params?.jobType) q.set("job_type", params.jobType);
+  if (params?.search) q.set("search", params.search);
+  return adminRequest<{ items: AdminDeliveryCard[] }>(`/admin/deliveries?${q.toString()}`);
+};
 
 export const adminForceExpireBatch = (batchId: number, refundPaidMembers = true) =>
-  apiRequest(`/admin/batches/${batchId}/expire?refund_paid_members=${refundPaidMembers}`, { method: "POST" });
+  adminRequest(`/admin/batches/${batchId}/expire?refund_paid_members=${refundPaidMembers}`, { method: "POST" });
 
 export const adminForceOfferBatch = (batchId: number, tankerId: number) =>
-  apiRequest(`/admin/batches/${batchId}/offer/${tankerId}`, { method: "POST" });
+  adminRequest(`/admin/batches/${batchId}/offer/${tankerId}`, { method: "POST" });
 
 export const adminRefundMember = (memberId: number) =>
-  apiRequest(`/admin/batch-members/${memberId}/refund`, { method: "POST" });
+  adminRequest(`/admin/batch-members/${memberId}/refund`, { method: "POST" });
 
 export const adminResetTanker = (tankerId: number) =>
-  apiRequest(`/admin/tankers/${tankerId}/reset`, { method: "POST" });
+  adminRequest(`/admin/tankers/${tankerId}/reset`, { method: "POST" });
 
 export const adminCleanupExpired = () =>
-  apiRequest(`/admin/maintenance/cleanup-expired`, { method: "POST" });
+  adminRequest(`/admin/maintenance/cleanup-expired`, { method: "POST" });
+
+export const adminManualCompleteDelivery = (deliveryId: number, payload?: { notes?: string; actual_liters_delivered?: number }) =>
+  adminRequest(`/admin/deliveries/${deliveryId}/complete-manual`, { method: "POST", body: payload || {} });
+
+export const adminManualFailDelivery = (deliveryId: number, reason: string) =>
+  adminRequest(`/admin/deliveries/${deliveryId}/fail-manual`, { method: "POST", body: { reason } });
+
+export const adminManualSkipDelivery = (deliveryId: number, reason: string) =>
+  adminRequest(`/admin/deliveries/${deliveryId}/skip-manual`, { method: "POST", body: { reason } });

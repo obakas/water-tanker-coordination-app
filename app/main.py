@@ -15,7 +15,7 @@ from app.api.routes import (
     refunds,
     deliveries,
     histories,
-    admins,
+    admin,
 )
 
 app = FastAPI()
@@ -72,4 +72,4 @@ app.include_router(batch_members.router)
 app.include_router(refunds.router)
 app.include_router(deliveries.router)
 app.include_router(histories.router)
-app.include_router(admins.router)
+app.include_router(admin.router)
