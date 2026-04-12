@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import json
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, status
+from pydantic import BaseModel, Field
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
+from app.models.admin_audit_log import AdminAuditLog
 from app.models.batch import Batch
 from app.models.batch_member import BatchMember
 from app.models.DeliveryRecord import DeliveryRecord
@@ -17,21 +21,47 @@ from app.models.tanker import Tanker
 from app.models.user import User
 from app.services.assignment_service import create_job_offer
 from app.services.batch_service import cleanup_expired_members
+from app.services.delivery_service import _finalize_job_if_possible
 from app.services.refund_service import execute_member_refund
 from app.utils.status_rules import ensure_valid_transition, BATCH_STATUS_TRANSITIONS, TANKER_STATUS_TRANSITIONS
 
-router = APIRouter(prefix="/admin", tags=["Admin"])
+
+def require_admin_secret(x_admin_secret: str | None = Header(default=None)) -> str:
+    expected = (settings.ADMIN_SECRET or "").strip()
+    provided = (x_admin_secret or "").strip()
+    if not expected:
+        raise HTTPException(status_code=500, detail="ADMIN_SECRET is not configured on the backend")
+    if not provided or provided != expected:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin secret")
+    return provided
+
+
+router = APIRouter(prefix="/admin", tags=["Admin"], dependencies=[Depends(require_admin_secret)])
 
 ACTIVE_BATCH_STATUSES = {"forming", "near_ready", "ready_for_assignment", "assigned", "loading", "delivering", "arrived"}
 ACTIVE_REQUEST_STATUSES = {"pending", "searching_driver", "assignment_pending", "assigned", "loading", "delivering", "arrived"}
 ACTIVE_TANKER_STATUSES = {"available", "assigned", "loading", "delivering", "arrived"}
 ACTIVE_DELIVERY_STATUSES = {"pending", "en_route", "arrived", "measuring", "awaiting_otp"}
+RESOLVED_DELIVERY_STATUSES = {"delivered", "failed", "skipped"}
+
+
+class AdminReasonPayload(BaseModel):
+    reason: str = Field(..., min_length=3, max_length=255)
+
+
+class AdminDeliveryCompletePayload(BaseModel):
+    notes: str | None = Field(default=None, max_length=255)
+    actual_liters_delivered: float | None = Field(default=None, ge=0)
 
 
 # ---------- helpers ----------
 
 def _iso(dt: datetime | None) -> str | None:
     return dt.isoformat() if dt else None
+
+
+def _utcnow() -> datetime:
+    return datetime.utcnow()
 
 
 def _safe_set_batch_status(batch: Batch, next_status: str) -> None:
@@ -105,7 +135,7 @@ def _build_tanker_card(db: Session, tanker: Tanker) -> dict[str, Any]:
         "tank_plate_number": tanker.tank_plate_number,
         "status": tanker.status,
         "is_available": tanker.is_available,
-        "is_online": tanker.is_online,
+        "is_online": getattr(tanker, "is_online", False),
         "current_request_id": tanker.current_request_id,
         "active_batch_id": active_batch.id if active_batch else None,
         "active_request_status": active_request.status if active_request else None,
@@ -115,7 +145,7 @@ def _build_tanker_card(db: Session, tanker: Tanker) -> dict[str, Any]:
         "latitude": tanker.latitude,
         "longitude": tanker.longitude,
         "last_location_update_at": _iso(tanker.last_location_update_at),
-        "paused_until": _iso(tanker.paused_until),
+        "paused_until": _iso(getattr(tanker, "paused_until", None)),
     }
 
 
@@ -149,6 +179,152 @@ def _build_delivery_card(db: Session, delivery: DeliveryRecord) -> dict[str, Any
     }
 
 
+def _build_request_item(item: LiquidRequest) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "user_id": item.user_id,
+        "delivery_type": item.delivery_type,
+        "status": item.status,
+        "volume_liters": item.volume_liters,
+        "is_asap": item.is_asap,
+        "scheduled_for": _iso(item.scheduled_for),
+        "latitude": item.latitude,
+        "longitude": item.longitude,
+        "retry_count": item.retry_count,
+        "assignment_failed_reason": item.assignment_failed_reason,
+        "refund_eligible": item.refund_eligible,
+        "created_at": _iso(item.created_at),
+        "updated_at": _iso(item.updated_at),
+    }
+
+
+def _search_like(value: str) -> str:
+    return f"%{value.strip()}%"
+
+
+def _apply_delivery_resolution_side_effects(db: Session, delivery: DeliveryRecord) -> dict[str, Any]:
+    tanker = db.query(Tanker).filter(Tanker.id == delivery.tanker_id).first()
+
+    if delivery.job_type == "batch" and delivery.member_id:
+        member = db.query(BatchMember).filter(BatchMember.id == delivery.member_id).first()
+        if member:
+            if delivery.delivery_status == "delivered":
+                member.status = "delivered"
+                if hasattr(member, "customer_confirmed"):
+                    member.customer_confirmed = True
+                if hasattr(member, "customer_confirmed_at"):
+                    member.customer_confirmed_at = delivery.delivered_at or _utcnow()
+            elif delivery.delivery_status == "failed":
+                member.status = "failed"
+            elif delivery.delivery_status == "skipped":
+                member.status = "skipped"
+            db.add(member)
+
+    if delivery.job_type == "priority" and delivery.request_id:
+        request = db.query(LiquidRequest).filter(LiquidRequest.id == delivery.request_id).first()
+        if request:
+            if delivery.delivery_status == "delivered":
+                request.status = "completed"
+                request.completed_at = delivery.delivered_at or _utcnow()
+            elif delivery.delivery_status == "failed":
+                request.status = "failed"
+            elif delivery.delivery_status == "skipped":
+                request.status = "partially_completed"
+            db.add(request)
+
+    next_stop = None
+    if delivery.job_type == "batch" and delivery.batch_id:
+        next_stop = (
+            db.query(DeliveryRecord)
+            .filter(
+                DeliveryRecord.job_type == "batch",
+                DeliveryRecord.batch_id == delivery.batch_id,
+                DeliveryRecord.delivery_status == "pending",
+            )
+            .order_by(DeliveryRecord.stop_order.asc(), DeliveryRecord.id.asc())
+            .first()
+        )
+    elif delivery.job_type == "priority" and delivery.request_id:
+        next_stop = (
+            db.query(DeliveryRecord)
+            .filter(
+                DeliveryRecord.job_type == "priority",
+                DeliveryRecord.request_id == delivery.request_id,
+                DeliveryRecord.delivery_status == "pending",
+            )
+            .order_by(DeliveryRecord.stop_order.asc(), DeliveryRecord.id.asc())
+            .first()
+        )
+
+    if next_stop:
+        next_stop.delivery_status = "en_route"
+        next_stop.dispatched_at = next_stop.dispatched_at or _utcnow()
+        db.add(next_stop)
+        if tanker and tanker.status != "delivering":
+            tanker.status = "delivering"
+            tanker.is_available = False
+            db.add(tanker)
+    elif tanker:
+        tanker.status = "available"
+        tanker.is_available = True
+        if delivery.job_type == "priority":
+            tanker.current_request_id = None
+        db.add(tanker)
+
+    db.add(delivery)
+    db.commit()
+    db.refresh(delivery)
+    finalize_result = _finalize_job_if_possible(db, delivery)
+    return {"delivery": delivery, "next_stop_id": next_stop.id if next_stop else None, "finalize_result": finalize_result}
+
+
+def _mark_delivery_status_manually(db: Session, delivery: DeliveryRecord, status_value: str, reason: str | None = None, notes: str | None = None, actual_liters_delivered: float | None = None) -> dict[str, Any]:
+    if delivery.delivery_status in RESOLVED_DELIVERY_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Delivery already resolved as '{delivery.delivery_status}'")
+
+    now = _utcnow()
+    delivery.delivery_status = status_value
+    delivery.updated_at = now
+
+    if status_value == "delivered":
+        delivered = actual_liters_delivered if actual_liters_delivered is not None else (delivery.actual_liters_delivered or delivery.planned_liters)
+        delivery.arrived_at = delivery.arrived_at or now
+        delivery.measurement_started_at = delivery.measurement_started_at or now
+        delivery.measurement_completed_at = delivery.measurement_completed_at or now
+        delivery.delivered_at = delivery.delivered_at or now
+        delivery.actual_liters_delivered = delivered
+        if delivery.measurement_required:
+            delivery.meter_start_reading = delivery.meter_start_reading if delivery.meter_start_reading is not None else 0
+            delivery.meter_end_reading = delivery.meter_end_reading if delivery.meter_end_reading is not None else delivered
+            delivery.measurement_valid = True
+        if delivery.otp_required:
+            delivery.otp_verified = True
+            delivery.otp_verified_at = delivery.otp_verified_at or now
+            delivery.otp_consumed_at = delivery.otp_consumed_at or now
+            delivery.delivery_code = None
+        delivery.customer_confirmed = True
+        delivery.customer_confirmed_at = delivery.customer_confirmed_at or now
+        if notes:
+            delivery.notes = notes
+    elif status_value == "failed":
+        delivery.failed_at = delivery.failed_at or now
+        delivery.failure_reason = reason
+        delivery.notes = notes or reason
+    elif status_value == "skipped":
+        delivery.skipped_at = delivery.skipped_at or now
+        delivery.skip_reason = reason
+        delivery.notes = notes or reason
+
+    return _apply_delivery_resolution_side_effects(db, delivery)
+
+
+# ---------- auth ----------
+
+@router.get("/session")
+def admin_session():
+    return {"ok": True, "message": "Admin access granted"}
+
+
 # ---------- read endpoints ----------
 
 @router.get("/overview")
@@ -178,7 +354,7 @@ def admin_overview(db: Session = Depends(get_db)):
     paid_payment_value = db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(Payment.status == "paid").scalar() or 0
 
     return {
-        "generated_at": _iso(datetime.utcnow()),
+        "generated_at": _iso(_utcnow()),
         "totals": {
             "users": db.query(func.count(User.id)).scalar() or 0,
             "batches": db.query(func.count(Batch.id)).scalar() or 0,
@@ -207,10 +383,7 @@ def admin_overview(db: Session = Depends(get_db)):
 
 
 @router.get("/live")
-def admin_live(
-    limit: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db),
-):
+def admin_live(limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db)):
     active_batches = (
         db.query(Batch)
         .filter(Batch.status.in_(list(ACTIVE_BATCH_STATUSES)))
@@ -235,33 +408,17 @@ def admin_live(
     active_requests = (
         db.query(LiquidRequest)
         .filter(LiquidRequest.delivery_type == "priority", LiquidRequest.status.in_(list(ACTIVE_REQUEST_STATUSES)))
-        .order_by(LiquidRequest.created_at.desc(), LiquidRequest.id.desc())
+        .order_by(LiquidRequest.updated_at.desc(), LiquidRequest.id.desc())
         .limit(limit)
         .all()
     )
 
     return {
-        "generated_at": _iso(datetime.utcnow()),
+        "generated_at": _iso(_utcnow()),
         "batches": [_build_batch_card(db, item) for item in active_batches],
         "tankers": [_build_tanker_card(db, item) for item in active_tankers],
         "deliveries": [_build_delivery_card(db, item) for item in active_deliveries],
-        "priority_requests": [
-            {
-                "id": request.id,
-                "status": request.status,
-                "user_id": request.user_id,
-                "volume_liters": request.volume_liters,
-                "is_asap": request.is_asap,
-                "scheduled_for": _iso(request.scheduled_for),
-                "created_at": _iso(request.created_at),
-                "updated_at": _iso(request.updated_at),
-                "retry_count": request.retry_count,
-                "refund_eligible": request.refund_eligible,
-                "latitude": request.latitude,
-                "longitude": request.longitude,
-            }
-            for request in active_requests
-        ],
+        "priority_requests": [_build_request_item(request) for request in active_requests],
     }
 
 
@@ -269,38 +426,91 @@ def admin_live(
 def admin_requests(
     limit: int = Query(50, ge=1, le=200),
     delivery_type: str | None = Query(None),
+    status: str | None = Query(None),
+    search: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
     query = db.query(LiquidRequest)
     if delivery_type:
         query = query.filter(LiquidRequest.delivery_type == delivery_type)
+    if status:
+        query = query.filter(LiquidRequest.status == status)
+    if search and search.strip():
+        term = _search_like(search)
+        query = query.filter(
+            or_(
+                LiquidRequest.id.like(term),
+                LiquidRequest.user_id.like(term),
+                LiquidRequest.status.ilike(term),
+                LiquidRequest.delivery_type.ilike(term),
+            )
+        )
     requests = query.order_by(LiquidRequest.created_at.desc(), LiquidRequest.id.desc()).limit(limit).all()
+    return {"items": [_build_request_item(item) for item in requests]}
+
+
+@router.get("/requests/{request_id}")
+def admin_request_detail(request_id: int, db: Session = Depends(get_db)):
+    request = db.query(LiquidRequest).filter(LiquidRequest.id == request_id).first()
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    user = db.query(User).filter(User.id == request.user_id).first()
+    member = db.query(BatchMember).filter(BatchMember.request_id == request.id).order_by(BatchMember.id.desc()).first()
+    batch = db.query(Batch).filter(Batch.id == member.batch_id).first() if member and member.batch_id else None
+    payments = db.query(Payment).filter(or_(Payment.user_id == request.user_id, Payment.member_id == (member.id if member else None), Payment.batch_id == (batch.id if batch else None))).order_by(Payment.id.desc()).all()
+    deliveries = db.query(DeliveryRecord).filter(or_(DeliveryRecord.request_id == request.id, DeliveryRecord.member_id == (member.id if member else None), DeliveryRecord.batch_id == (batch.id if batch else None))).order_by(DeliveryRecord.id.asc()).all()
+    tanker = db.query(Tanker).filter(Tanker.id == batch.tanker_id).first() if batch and batch.tanker_id else None
+
     return {
-        "items": [
+        "request": _build_request_item(request),
+        "user": {
+            "id": user.id,
+            "name": user.name,
+            "phone": user.phone,
+            "address": user.address,
+        } if user else None,
+        "member": {
+            "id": member.id,
+            "status": getattr(member, "status", None),
+            "payment_status": getattr(member, "payment_status", None),
+            "amount_paid": float(getattr(member, "amount_paid", 0) or 0),
+            "joined_at": _iso(getattr(member, "created_at", None)),
+        } if member else None,
+        "batch": _build_batch_card(db, batch) if batch else None,
+        "tanker": _build_tanker_card(db, tanker) if tanker else None,
+        "payments": [
             {
-                "id": item.id,
-                "user_id": item.user_id,
-                "delivery_type": item.delivery_type,
-                "status": item.status,
-                "volume_liters": item.volume_liters,
-                "is_asap": item.is_asap,
-                "scheduled_for": _iso(item.scheduled_for),
-                "latitude": item.latitude,
-                "longitude": item.longitude,
-                "retry_count": item.retry_count,
-                "assignment_failed_reason": item.assignment_failed_reason,
-                "refund_eligible": item.refund_eligible,
-                "created_at": _iso(item.created_at),
-                "updated_at": _iso(item.updated_at),
+                "id": p.id,
+                "user_id": p.user_id,
+                "batch_id": p.batch_id,
+                "member_id": p.member_id,
+                "amount": float(p.amount or 0),
+                "status": p.status,
             }
-            for item in requests
-        ]
+            for p in payments
+        ],
+        "deliveries": [_build_delivery_card(db, d) for d in deliveries],
     }
 
 
 @router.get("/payments")
-def admin_payments(limit: int = Query(50, ge=1, le=200), db: Session = Depends(get_db)):
-    payments = db.query(Payment).order_by(Payment.id.desc()).limit(limit).all()
+def admin_payments(limit: int = Query(50, ge=1, le=200), status: str | None = Query(None), search: str | None = Query(None), db: Session = Depends(get_db)):
+    query = db.query(Payment)
+    if status:
+        query = query.filter(Payment.status == status)
+    if search and search.strip():
+        term = _search_like(search)
+        query = query.filter(
+            or_(
+                Payment.status.ilike(term),
+                Payment.id.like(term),
+                Payment.user_id.like(term),
+                Payment.batch_id.like(term),
+                Payment.member_id.like(term),
+            )
+        )
+    payments = query.order_by(Payment.id.desc()).limit(limit).all()
     return {
         "items": [
             {
@@ -317,14 +527,52 @@ def admin_payments(limit: int = Query(50, ge=1, le=200), db: Session = Depends(g
 
 
 @router.get("/tankers")
-def admin_tankers(limit: int = Query(50, ge=1, le=200), db: Session = Depends(get_db)):
-    tankers = db.query(Tanker).order_by(Tanker.id.desc()).limit(limit).all()
+def admin_tankers(limit: int = Query(50, ge=1, le=200), status: str | None = Query(None), search: str | None = Query(None), db: Session = Depends(get_db)):
+    query = db.query(Tanker)
+    if status:
+        query = query.filter(Tanker.status == status)
+    if search and search.strip():
+        term = _search_like(search)
+        query = query.filter(
+            or_(
+                Tanker.driver_name.ilike(term),
+                Tanker.phone.ilike(term),
+                Tanker.tank_plate_number.ilike(term),
+                Tanker.status.ilike(term),
+            )
+        )
+    tankers = query.order_by(Tanker.id.desc()).limit(limit).all()
     return {"items": [_build_tanker_card(db, item) for item in tankers]}
 
 
 @router.get("/deliveries")
-def admin_deliveries(limit: int = Query(50, ge=1, le=200), db: Session = Depends(get_db)):
-    deliveries = db.query(DeliveryRecord).order_by(DeliveryRecord.updated_at.desc(), DeliveryRecord.id.desc()).limit(limit).all()
+def admin_deliveries(
+    limit: int = Query(50, ge=1, le=200),
+    status: str | None = Query(None),
+    job_type: str | None = Query(None),
+    search: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    query = db.query(DeliveryRecord)
+    if status:
+        query = query.filter(DeliveryRecord.delivery_status == status)
+    if job_type:
+        query = query.filter(DeliveryRecord.job_type == job_type)
+    if search and search.strip():
+        term = _search_like(search)
+        query = query.filter(
+            or_(
+                DeliveryRecord.id.like(term),
+                DeliveryRecord.job_type.ilike(term),
+                DeliveryRecord.delivery_status.ilike(term),
+                DeliveryRecord.request_id.like(term),
+                DeliveryRecord.batch_id.like(term),
+                DeliveryRecord.member_id.like(term),
+                DeliveryRecord.tanker_id.like(term),
+                DeliveryRecord.user_id.like(term),
+            )
+        )
+    deliveries = query.order_by(DeliveryRecord.updated_at.desc(), DeliveryRecord.id.desc()).limit(limit).all()
     return {"items": [_build_delivery_card(db, item) for item in deliveries]}
 
 
@@ -350,7 +598,7 @@ def force_expire_batch(batch_id: int, refund_paid_members: bool = True, db: Sess
         _safe_set_batch_status(batch, "expired")
 
     batch.completed_at = None
-    batch.assignment_failed_at = datetime.utcnow()
+    batch.assignment_failed_at = _utcnow()
 
     refunds: list[dict[str, Any]] = []
     members = db.query(BatchMember).filter(BatchMember.batch_id == batch.id).all()
@@ -394,7 +642,7 @@ def force_offer_batch_to_tanker(batch_id: int, tanker_id: int, db: Session = Dep
 
     tanker.pending_offer_type = "batch"
     tanker.pending_offer_id = batch.id
-    tanker.offer_expires_at = datetime.utcnow() + timedelta(seconds=60)
+    tanker.offer_expires_at = _utcnow() + timedelta(seconds=60)
     tanker.is_available = False
     if tanker.status == "completed":
         tanker.status = "available"
@@ -402,7 +650,7 @@ def force_offer_batch_to_tanker(batch_id: int, tanker_id: int, db: Session = Dep
     if batch.status in {"forming", "near_ready"}:
         _safe_set_batch_status(batch, "ready_for_assignment")
 
-    batch.assignment_started_at = batch.assignment_started_at or datetime.utcnow()
+    batch.assignment_started_at = batch.assignment_started_at or _utcnow()
     batch.assignment_failed_at = None
 
     offer = create_job_offer(
@@ -468,3 +716,97 @@ def reset_tanker_availability(tanker_id: int, db: Session = Depends(get_db)):
         "status": tanker.status,
         "is_available": tanker.is_available,
     }
+
+
+@router.post("/deliveries/{delivery_id}/complete-manual")
+def admin_complete_delivery_manually(delivery_id: int, payload: AdminDeliveryCompletePayload = Body(default=AdminDeliveryCompletePayload()), db: Session = Depends(get_db)):
+    delivery = db.query(DeliveryRecord).filter(DeliveryRecord.id == delivery_id).first()
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+    result = _mark_delivery_status_manually(
+        db,
+        delivery,
+        "delivered",
+        notes=payload.notes or "Manually completed by admin",
+        actual_liters_delivered=payload.actual_liters_delivered,
+    )
+    return {
+        "message": "Delivery manually completed",
+        "delivery": _build_delivery_card(db, result["delivery"]),
+        "next_stop_id": result["next_stop_id"],
+        "finalize_result": result["finalize_result"],
+    }
+
+
+@router.post("/deliveries/{delivery_id}/fail-manual")
+def admin_fail_delivery_manually(delivery_id: int, payload: AdminReasonPayload, db: Session = Depends(get_db)):
+    delivery = db.query(DeliveryRecord).filter(DeliveryRecord.id == delivery_id).first()
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+    result = _mark_delivery_status_manually(db, delivery, "failed", reason=payload.reason, notes=payload.reason)
+    return {
+        "message": "Delivery manually marked as failed",
+        "delivery": _build_delivery_card(db, result["delivery"]),
+        "next_stop_id": result["next_stop_id"],
+        "finalize_result": result["finalize_result"],
+    }
+
+
+@router.post("/deliveries/{delivery_id}/skip-manual")
+def admin_skip_delivery_manually(delivery_id: int, payload: AdminReasonPayload, db: Session = Depends(get_db)):
+    delivery = db.query(DeliveryRecord).filter(DeliveryRecord.id == delivery_id).first()
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+    result = _mark_delivery_status_manually(db, delivery, "skipped", reason=payload.reason, notes=payload.reason)
+    return {
+        "message": "Delivery manually skipped",
+        "delivery": _build_delivery_card(db, result["delivery"]),
+        "next_stop_id": result["next_stop_id"],
+        "finalize_result": result["finalize_result"],
+    }
+
+
+
+def require_admin(x_admin_secret: str | None = Header(default=None)):
+    if x_admin_secret != settings.ADMIN_SECRET:
+        raise HTTPException(status_code=401, detail="Invalid admin secret")
+    return True
+
+
+@router.get("/audit-logs", dependencies=[Depends(require_admin)])
+def list_admin_audit_logs(
+    action: str | None = Query(default=None),
+    entity_type: str | None = Query(default=None),
+    entity_id: int | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    q = db.query(AdminAuditLog)
+
+    if action:
+        q = q.filter(AdminAuditLog.action == action)
+    if entity_type:
+        q = q.filter(AdminAuditLog.entity_type == entity_type)
+    if entity_id is not None:
+        q = q.filter(AdminAuditLog.entity_id == entity_id)
+
+    rows = q.order_by(AdminAuditLog.created_at.desc()).limit(limit).all()
+
+    return [
+        {
+            "id": row.id,
+            "action": row.action,
+            "entity_type": row.entity_type,
+            "entity_id": row.entity_id,
+            "admin_identifier": row.admin_identifier,
+            "reason": row.reason,
+            "metadata": json.loads(row.metadata_json or "{}"),
+            "created_at": row.created_at.isoformat(),
+        }
+        for row in rows
+    ]
+
+
+@router.get("/session", dependencies=[Depends(require_admin)])
+def admin_session():
+    return {"ok": True}

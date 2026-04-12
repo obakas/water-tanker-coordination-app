@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+# from fastapi_cloud_cli.logging import setup_logging
 
 from app.core.database import Base, engine
 from app.core.scheduler import start_scheduler, stop_scheduler
@@ -15,8 +16,13 @@ from app.api.routes import (
     refunds,
     deliveries,
     histories,
-    admin,
+    admins,
+    healths
 )
+from app.core.logging_config import setup_logging
+from app.middleware.request_logging import RequestLoggingMiddleware
+
+setup_logging()
 
 app = FastAPI()
 
@@ -72,4 +78,6 @@ app.include_router(batch_members.router)
 app.include_router(refunds.router)
 app.include_router(deliveries.router)
 app.include_router(histories.router)
-app.include_router(admin.router)
+app.include_router(admins.router)
+app.include_router(healths.router)
+app.add_middleware(RequestLoggingMiddleware)
