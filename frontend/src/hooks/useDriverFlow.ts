@@ -322,8 +322,8 @@ export const useDriverFlow = (driver: DriverUser | null) => {
       jobResponse?.tanker_status ??
       "available";
 
-    // return tankerStatus !== "offline";
-    return ["assigned", "loading", "delivering", "arrived"].includes(tankerStatus);
+    return tankerStatus !== "offline";
+    // return ["assigned", "loading", "delivering", "arrived"].includes(tankerStatus);
   }, [tankerId, driver, stopResponse, jobResponse]);
 
   const nextInstruction = useMemo(() => {
