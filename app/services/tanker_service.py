@@ -211,4 +211,3 @@ def get_available_tankers(db: Session, liquid_id: int | None = None) -> list[Tan
         query = query.filter(Tanker.liquid_id == liquid_id)
 
     return query.all()
-
