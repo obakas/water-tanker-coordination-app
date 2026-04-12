@@ -265,6 +265,8 @@ const DriverView = ({ onBack }: DriverViewProps) => {
             allDelivered={allDelivered}
             allowedActions={allowedActions}
             currentStopStatus={currentStop?.delivery_status ?? null}
+            otpVerified={currentStop?.otp_verified ?? false}
+            
             otpInput={otpInput}
             setOtpInput={setOtpInput}
             meterStartReading={meterStartReading}

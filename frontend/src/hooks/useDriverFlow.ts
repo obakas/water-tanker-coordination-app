@@ -672,7 +672,8 @@ export const useDriverFlow = (driver: DriverUser | null) => {
       async () => {
         await confirmStopOtp(tankerId, currentStop.delivery_id, otpInput.trim());
       },
-      "OTP verified successfully."
+      "OTP verified successfully.",
+      { clearInputs: true }
     );
   }, [tankerId, currentStop, allowedActions, otpInput, runAction]);
 

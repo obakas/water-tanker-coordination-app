@@ -33,6 +33,8 @@ interface DriverDeliveringStepProps {
 
   isLoading: boolean;
 
+  otpVerified?: boolean;
+
   onMarkArrived: () => void | Promise<void>;
   onBeginMeasurement: () => void | Promise<void>;
   onFinishMeasurement: () => void | Promise<void>;
@@ -50,8 +52,11 @@ export const DriverDeliveringStep = ({
   totalStops,
   allDelivered,
   allowedActions = [],
+
   currentStopStatus,
   otpInput,
+  otpVerified = false,
+
   setOtpInput,
   meterStartReading,
   setMeterStartReading,
@@ -72,17 +77,28 @@ export const DriverDeliveringStep = ({
   onFailStop,
   onSkipStop,
   onReset,
-  driverLatitude,
-  driverLongitude,
-  lastLocationUpdateAt,
+
+  // driverLatitude,
+  // driverLongitude,
+  // lastLocationUpdateAt,
 }: DriverDeliveringStepProps) => {
   const canArrive = allowedActions.includes("arrive");
   const canStartMeasurement = allowedActions.includes("start_measurement");
   const canFinishMeasurement = allowedActions.includes("finish_measurement");
-  const canVerifyOtp = allowedActions.includes("confirm_otp");
-  const canComplete = allowedActions.includes("complete");
+  // const canVerifyOtp = allowedActions.includes("confirm_otp");
+  // const canComplete = allowedActions.includes("complete");
   const canFail = allowedActions.includes("fail");
   const canSkip = allowedActions.includes("skip");
+
+  const isAwaitingOtp = currentStopStatus === "awaiting_otp";
+  const canVerifyOtp = allowedActions.includes("confirm_otp");
+  const canComplete = allowedActions.includes("complete");
+
+  const shouldShowOtp =
+    isAwaitingOtp &&
+    canVerifyOtp &&
+    !otpVerified &&
+    !canComplete;
 
   if (allDelivered || !currentDelivery) {
     return (
@@ -106,6 +122,14 @@ export const DriverDeliveringStep = ({
   }
 
   const stopNumber = activeDeliveryIdx >= 0 ? activeDeliveryIdx + 1 : 1;
+
+  const handleVerifyOtp = async () => {
+    if (!otpInput.trim()) return;
+
+    await onVerifyOtp();
+
+    setOtpInput(""); // 🔥 clear immediately
+  };
 
   return (
     <div className="space-y-6">
@@ -261,7 +285,7 @@ export const DriverDeliveringStep = ({
           </div>
         ) : null}
 
-        {canVerifyOtp ? (
+        {/* {isAwaitingOtp && canVerifyOtp ? (
           <div className="rounded-xl border p-4 space-y-3">
             <h4 className="font-medium text-foreground">4. Verify Customer OTP</h4>
             <p className="text-sm text-muted-foreground">
@@ -282,6 +306,36 @@ export const DriverDeliveringStep = ({
             </div>
 
             <Button onClick={onVerifyOtp} disabled={isLoading}>
+              {isLoading ? "Processing..." : "Verify OTP"}
+            </Button>
+          </div>
+        ) : null} */}
+
+
+        {shouldShowOtp ? (
+          <div className="rounded-xl border p-4 space-y-3">
+            <h4 className="font-medium text-foreground">4. Verify Customer OTP</h4>
+            <p className="text-sm text-muted-foreground">
+              Collect the OTP from the customer after measurement is completed.
+            </p>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">OTP Code</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={10}
+                value={otpInput}
+                onChange={(e) => setOtpInput(e.target.value)}
+                placeholder="Enter customer OTP"
+                className="w-full rounded-xl border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+
+            {/* <Button onClick={onVerifyOtp} disabled={isLoading || !otpInput.trim()}>
+              {isLoading ? "Processing..." : "Verify OTP"}
+            </Button> */}
+            <Button onClick={handleVerifyOtp} disabled={isLoading || !otpInput.trim()}>
               {isLoading ? "Processing..." : "Verify OTP"}
             </Button>
           </div>
@@ -339,12 +393,12 @@ export const DriverDeliveringStep = ({
         ) : null}
 
         {!canArrive &&
-        !canStartMeasurement &&
-        !canFinishMeasurement &&
-        !canVerifyOtp &&
-        !canComplete &&
-        !canFail &&
-        !canSkip ? (
+          !canStartMeasurement &&
+          !canFinishMeasurement &&
+          !canVerifyOtp &&
+          !canComplete &&
+          !canFail &&
+          !canSkip ? (
           <div className="rounded-xl border border-dashed p-4">
             <div className="flex items-start gap-3">
               <AlertTriangle className="mt-0.5 h-5 w-5 text-muted-foreground" />
