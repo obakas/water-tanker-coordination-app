@@ -3,9 +3,15 @@ import { Droplets, Truck, Sun, Moon } from "lucide-react";
 import ClientView from "@/components/ClientView";
 import DriverView from "@/components/DriverView";
 
+const ROLE_KEY = "tankup_active_role";
+const DRIVER_AUTH_KEY = "driver_auth";
+const CLIENT_USER_KEY = "water_user";
+const CLIENT_SESSION_KEY = "water_client_session";
+
 const Index = () => {
   const [role, setRole] = useState<"select" | "client" | "driver">("select");
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem("tankup-theme") as "light" | "dark" | null;
@@ -19,6 +25,25 @@ const Index = () => {
       setTheme(initialTheme);
       document.documentElement.classList.toggle("dark", initialTheme === "dark");
     }
+
+    const savedRole = localStorage.getItem(ROLE_KEY) as "client" | "driver" | null;
+    const hasDriverAuth = !!localStorage.getItem(DRIVER_AUTH_KEY);
+    const hasClientUser = !!localStorage.getItem(CLIENT_USER_KEY);
+    const hasClientSession = !!localStorage.getItem(CLIENT_SESSION_KEY);
+
+    if (savedRole === "driver" && hasDriverAuth) {
+      setRole("driver");
+    } else if (savedRole === "client" && (hasClientUser || hasClientSession)) {
+      setRole("client");
+    } else if (hasDriverAuth) {
+      setRole("driver");
+    } else if (hasClientUser || hasClientSession) {
+      setRole("client");
+    } else {
+      setRole("select");
+    }
+
+    setIsHydrated(true);
   }, []);
 
   const toggleTheme = () => {
@@ -28,12 +53,26 @@ const Index = () => {
     document.documentElement.classList.toggle("dark", nextTheme === "dark");
   };
 
+  const selectRole = (nextRole: "client" | "driver") => {
+    setRole(nextRole);
+    localStorage.setItem(ROLE_KEY, nextRole);
+  };
+
+  const goHome = () => {
+    setRole("select");
+    localStorage.removeItem(ROLE_KEY);
+  };
+
+  if (!isHydrated) {
+    return <div className="min-h-screen bg-background" />;
+  }
+
   if (role === "client") {
-    return <ClientView onBack={() => setRole("select")} />;
+    return <ClientView onBack={goHome} />;
   }
 
   if (role === "driver") {
-    return <DriverView onBack={() => setRole("select")} />;
+    return <DriverView onBack={goHome} />;
   }
 
   return (
@@ -45,11 +84,7 @@ const Index = () => {
             className="h-11 w-11 rounded-full border border-border bg-card flex items-center justify-center text-foreground hover:scale-105 transition"
             aria-label="Toggle theme"
           >
-            {theme === "dark" ? (
-              <Sun className="h-5 w-5" />
-            ) : (
-              <Moon className="h-5 w-5" />
-            )}
+            {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
           </button>
         </div>
 
@@ -63,7 +98,7 @@ const Index = () => {
 
         <div className="space-y-4">
           <button
-            onClick={() => setRole("client")}
+            onClick={() => selectRole("client")}
             className="w-full bg-card rounded-2xl border border-border p-6 flex items-center gap-5 hover:shadow-lg hover:shadow-primary/5 hover:border-primary/30 transition-all duration-300 active:scale-[0.98]"
           >
             <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center shrink-0">
@@ -76,7 +111,7 @@ const Index = () => {
           </button>
 
           <button
-            onClick={() => setRole("driver")}
+            onClick={() => selectRole("driver")}
             className="w-full bg-card rounded-2xl border border-border p-6 flex items-center gap-5 hover:shadow-lg hover:shadow-primary/5 hover:border-primary/30 transition-all duration-300 active:scale-[0.98]"
           >
             <div className="w-14 h-14 rounded-2xl bg-success/10 flex items-center justify-center shrink-0">
@@ -84,7 +119,7 @@ const Index = () => {
             </div>
             <div className="text-left">
               <h2 className="font-bold text-foreground text-lg">I'm a Tanker Driver</h2>
-              <p className="text-sm text-muted-foreground">Accept batches and deliver water</p>
+              <p className="text-sm text-muted-foreground">Accept jobs, deliver water, & get paid</p>
             </div>
           </button>
         </div>

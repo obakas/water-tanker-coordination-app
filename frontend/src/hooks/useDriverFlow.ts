@@ -198,6 +198,7 @@ export const useDriverFlow = (driver: DriverUser | null) => {
       setJobResponse(null);
       setStopResponse(null);
       setIncomingOffer(null);
+      setDriverLocation(null);
       return;
     }
 
@@ -215,7 +216,13 @@ export const useDriverFlow = (driver: DriverUser | null) => {
         ? offerResult.value.offer
         : null;
 
-    const job = jobResult.status === "fulfilled" ? jobResult.value : null;
+    // const job = jobResult.status === "fulfilled" ? jobResult.value : null;
+    if (jobResult.status === "rejected") {
+      console.error("fetchCurrentDriverJob failed:", jobResult.reason);
+    }
+
+    const job =
+      jobResult.status === "fulfilled" ? jobResult.value : null;
     const stop = stopResult.status === "fulfilled" ? stopResult.value : null;
 
     const location = locationResult.status === "fulfilled" ? locationResult.value : null;
@@ -308,15 +315,16 @@ export const useDriverFlow = (driver: DriverUser | null) => {
   }, [driver, jobResponse, stopResponse, hadActiveStop, incomingOffer]);
 
   const shouldSendLocation = useMemo(() => {
-  if (!tankerId || !driver) return false;
+    if (!tankerId || !driver) return false;
 
-  const tankerStatus =
-    stopResponse?.tanker?.status ??
-    jobResponse?.tanker_status ??
-    "available";
+    const tankerStatus =
+      stopResponse?.tanker?.status ??
+      jobResponse?.tanker_status ??
+      "available";
 
-  return tankerStatus !== "offline";
-}, [tankerId, driver, stopResponse, jobResponse]);
+    // return tankerStatus !== "offline";
+    return ["assigned", "loading", "delivering", "arrived"].includes(tankerStatus);
+  }, [tankerId, driver, stopResponse, jobResponse]);
 
   const nextInstruction = useMemo(() => {
     if (!driver) return "Log in to continue.";
@@ -807,5 +815,6 @@ export const useDriverFlow = (driver: DriverUser | null) => {
 
     nextInstruction,
     startLoading,
+    driverLocation,
   };
 };

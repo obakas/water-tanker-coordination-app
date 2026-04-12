@@ -95,8 +95,17 @@ function NextStepCard({
 const DriverView = ({ onBack }: DriverViewProps) => {
   const [showHelp, setShowHelp] = useState(false);
 
-  const { driver, isAuthenticated, loginDriver, logoutDriver } = useDriverAuth();
+  const {
+    driver,
+    isAuthenticated,
+    isHydrated,
+    loginDriver,
+    logoutDriver,
+  } = useDriverAuth();
 
+  // IMPORTANT:
+  // Call hooks before any conditional return.
+  // This fixes "Rendered more hooks than during the previous render."
   const {
     step,
     incomingOffer,
@@ -126,7 +135,6 @@ const DriverView = ({ onBack }: DriverViewProps) => {
     isLoading,
     isActionLoading,
     refreshJob,
-    // acceptJob,
     markLoaded,
     markArrived,
     beginMeasurement,
@@ -140,7 +148,6 @@ const DriverView = ({ onBack }: DriverViewProps) => {
     setActiveTab,
     startLoading,
     nextInstruction,
-    driverLocation,
   } = useDriverFlow(driver);
 
   const renderDashboard = () => {
@@ -202,6 +209,7 @@ const DriverView = ({ onBack }: DriverViewProps) => {
             isLoading={isActionLoading}
           />
         );
+
       case "loading":
         if (!activeJob) {
           return (
@@ -221,7 +229,8 @@ const DriverView = ({ onBack }: DriverViewProps) => {
                 Load the tanker now.
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
-                {jobResponse?.message || nextInstruction ||
+                {jobResponse?.message ||
+                  nextInstruction ||
                   "You have up to 90 minutes to load water, then confirm the tanker is ready."}
               </p>
             </div>
@@ -230,11 +239,6 @@ const DriverView = ({ onBack }: DriverViewProps) => {
               job={activeJob}
               isLoading={isActionLoading}
               onMarkLoaded={markLoaded}
-              driverLatitude={driverLocation?.latitude}
-              driverLongitude={driverLocation?.longitude}
-              nextStopLatitude={activeJob?.stops?.[0]?.latitude}
-              nextStopLongitude={activeJob?.stops?.[0]?.longitude}
-              lastLocationUpdateAt={driverLocation?.last_location_update_at}
             />
           </div>
         );
@@ -282,9 +286,6 @@ const DriverView = ({ onBack }: DriverViewProps) => {
             onFailStop={failCurrentStop}
             onSkipStop={skipCurrentStop}
             onReset={resetToDashboard}
-            driverLatitude={driverLocation?.latitude}
-            driverLongitude={driverLocation?.longitude}
-            lastLocationUpdateAt={driverLocation?.last_location_update_at}
           />
         );
 
@@ -320,6 +321,10 @@ const DriverView = ({ onBack }: DriverViewProps) => {
     }
   };
 
+  if (!isHydrated) {
+    return <div className="min-h-screen bg-background" />;
+  }
+
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-background p-5">
@@ -342,19 +347,21 @@ const DriverView = ({ onBack }: DriverViewProps) => {
         <div className="grid grid-cols-2 rounded-2xl border bg-card p-1">
           <button
             onClick={() => setActiveTab("dashboard")}
-            className={`rounded-xl px-4 py-2 text-sm font-medium transition ${activeTab === "dashboard"
-              ? "bg-primary text-primary-foreground"
-              : "text-foreground"
-              }`}
+            className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+              activeTab === "dashboard"
+                ? "bg-primary text-primary-foreground"
+                : "text-foreground"
+            }`}
           >
             Dashboard
           </button>
           <button
             onClick={() => setActiveTab("history")}
-            className={`rounded-xl px-4 py-2 text-sm font-medium transition ${activeTab === "history"
-              ? "bg-primary text-primary-foreground"
-              : "text-foreground"
-              }`}
+            className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+              activeTab === "history"
+                ? "bg-primary text-primary-foreground"
+                : "text-foreground"
+            }`}
           >
             Delivery History
           </button>
