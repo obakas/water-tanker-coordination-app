@@ -17,7 +17,8 @@ from app.api.routes import (
     deliveries,
     histories,
     admins,
-    healths
+    healths,
+    admin_auth
 )
 from app.core.logging_config import setup_logging
 from app.middleware.request_logging import RequestLoggingMiddleware
@@ -41,7 +42,9 @@ def health_check():
     return {"status": "ok"}
 
 
-Base.metadata.create_all(bind=engine)
+# Base.metadata.create_all(bind=engine)
+if settings.DATABASE_URL.startswith("sqlite"):
+    Base.metadata.create_all(bind=engine)
 
 # origins = [
 #     settings.FRONTEND_URL,
@@ -81,3 +84,4 @@ app.include_router(histories.router)
 app.include_router(admins.router)
 app.include_router(healths.router)
 app.add_middleware(RequestLoggingMiddleware)
+app.include_router(admin_auth.router)

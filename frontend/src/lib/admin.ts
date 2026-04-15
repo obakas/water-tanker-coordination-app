@@ -1,17 +1,37 @@
 import { apiRequest } from "@/lib/api";
 
-const ADMIN_SECRET_STORAGE_KEY = "water-admin-secret";
+const ADMIN_TOKEN_STORAGE_KEY = "water-admin-token";
 
-export const getAdminSecret = () => localStorage.getItem(ADMIN_SECRET_STORAGE_KEY) || "";
-export const setAdminSecret = (secret: string) => localStorage.setItem(ADMIN_SECRET_STORAGE_KEY, secret.trim());
-export const clearAdminSecret = () => localStorage.removeItem(ADMIN_SECRET_STORAGE_KEY);
+export const getAdminToken = () => localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) || "";
+export const setAdminToken = (token: string) => localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token.trim());
+export const clearAdminToken = () => localStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
 
-function adminRequest<T>(endpoint: string, options: { method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; body?: unknown } = {}) {
-  const secret = getAdminSecret();
+function adminRequest<T>(
+  endpoint: string,
+  options: {
+    method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+    body?: unknown;
+  } = {}
+) {
+  const token = getAdminToken();
+
   return apiRequest<T>(endpoint, {
     ...options,
-    headers: secret ? { "X-Admin-Secret": secret } : {},
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
+}
+
+export interface AdminLoginResponse {
+  access_token: string;
+  token_type: string;
+}
+
+export interface AdminMeResponse {
+  id: number;
+  username: string;
+  email?: string | null;
+  role: string;
+  is_active: boolean;
 }
 
 export interface AdminOverviewResponse {
@@ -136,9 +156,17 @@ export interface AdminLiveResponse {
   priority_requests: AdminRequestItem[];
 }
 
-export const getAdminSession = () => adminRequest<{ ok: boolean; message: string }>("/admin/session");
+export const loginAdmin = (payload: { username: string; password: string }) =>
+  apiRequest<AdminLoginResponse>("/admin-auth/login", {
+    method: "POST",
+    body: payload,
+  });
+
+export const getAdminMe = () => adminRequest<AdminMeResponse>("/admin-auth/me");
+
 export const getAdminOverview = () => adminRequest<AdminOverviewResponse>("/admin/overview");
 export const getAdminLive = (limit = 20) => adminRequest<AdminLiveResponse>(`/admin/live?limit=${limit}`);
+
 export const getAdminRequests = (params?: { limit?: number; deliveryType?: string; status?: string; search?: string }) => {
   const q = new URLSearchParams();
   if (params?.limit) q.set("limit", String(params.limit));
@@ -147,7 +175,10 @@ export const getAdminRequests = (params?: { limit?: number; deliveryType?: strin
   if (params?.search) q.set("search", params.search);
   return adminRequest<{ items: AdminRequestItem[] }>(`/admin/requests?${q.toString()}`);
 };
-export const getAdminRequestDetail = (requestId: number) => adminRequest<AdminRequestDetailResponse>(`/admin/requests/${requestId}`);
+
+export const getAdminRequestDetail = (requestId: number) =>
+  adminRequest<AdminRequestDetailResponse>(`/admin/requests/${requestId}`);
+
 export const getAdminPayments = (params?: { limit?: number; status?: string; search?: string }) => {
   const q = new URLSearchParams();
   if (params?.limit) q.set("limit", String(params.limit));
@@ -155,6 +186,7 @@ export const getAdminPayments = (params?: { limit?: number; status?: string; sea
   if (params?.search) q.set("search", params.search);
   return adminRequest<{ items: AdminPaymentItem[] }>(`/admin/payments?${q.toString()}`);
 };
+
 export const getAdminTankers = (params?: { limit?: number; status?: string; search?: string }) => {
   const q = new URLSearchParams();
   if (params?.limit) q.set("limit", String(params.limit));
@@ -162,6 +194,7 @@ export const getAdminTankers = (params?: { limit?: number; status?: string; sear
   if (params?.search) q.set("search", params.search);
   return adminRequest<{ items: AdminTankerCard[] }>(`/admin/tankers?${q.toString()}`);
 };
+
 export const getAdminDeliveries = (params?: { limit?: number; status?: string; jobType?: string; search?: string }) => {
   const q = new URLSearchParams();
   if (params?.limit) q.set("limit", String(params.limit));
@@ -186,11 +219,23 @@ export const adminResetTanker = (tankerId: number) =>
 export const adminCleanupExpired = () =>
   adminRequest(`/admin/maintenance/cleanup-expired`, { method: "POST" });
 
-export const adminManualCompleteDelivery = (deliveryId: number, payload?: { notes?: string; actual_liters_delivered?: number }) =>
-  adminRequest(`/admin/deliveries/${deliveryId}/complete-manual`, { method: "POST", body: payload || {} });
+export const adminManualCompleteDelivery = (
+  deliveryId: number,
+  payload?: { notes?: string; actual_liters_delivered?: number }
+) =>
+  adminRequest(`/admin/deliveries/${deliveryId}/complete-manual`, {
+    method: "POST",
+    body: payload || {},
+  });
 
 export const adminManualFailDelivery = (deliveryId: number, reason: string) =>
-  adminRequest(`/admin/deliveries/${deliveryId}/fail-manual`, { method: "POST", body: { reason } });
+  adminRequest(`/admin/deliveries/${deliveryId}/fail-manual`, {
+    method: "POST",
+    body: { reason },
+  });
 
 export const adminManualSkipDelivery = (deliveryId: number, reason: string) =>
-  adminRequest(`/admin/deliveries/${deliveryId}/skip-manual`, { method: "POST", body: { reason } });
+  adminRequest(`/admin/deliveries/${deliveryId}/skip-manual`, {
+    method: "POST",
+    body: { reason },
+  });

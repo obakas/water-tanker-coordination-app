@@ -12,17 +12,18 @@ import {
   adminManualSkipDelivery,
   adminRefundMember,
   adminResetTanker,
-  clearAdminSecret,
+  clearAdminToken,
   getAdminDeliveries,
   getAdminLive,
+  getAdminMe,
   getAdminOverview,
   getAdminPayments,
   getAdminRequestDetail,
   getAdminRequests,
-  getAdminSecret,
-  getAdminSession,
   getAdminTankers,
-  setAdminSecret,
+  getAdminToken,
+  loginAdmin,
+  setAdminToken,
   type AdminDeliveryCard,
 } from "@/lib/admin";
 import { formatNigeriaDateTime } from "@/lib/datetime";
@@ -51,8 +52,13 @@ function StatusPill({ status }: { status?: string | null }) {
 
 export default function AdminDashboard() {
   const queryClient = useQueryClient();
-  const [secretInput, setSecretInput] = useState(getAdminSecret());
-  const [authEnabled, setAuthEnabled] = useState(Boolean(getAdminSecret()));
+  // const [secretInput, setSecretInput] = useState(getAdminSecret());
+  // const [authEnabled, setAuthEnabled] = useState(Boolean(getAdminSecret()));
+
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [authEnabled, setAuthEnabled] = useState(Boolean(getAdminToken()));
+
   const [offerBatchId, setOfferBatchId] = useState("");
   const [offerTankerId, setOfferTankerId] = useState("");
   const [expireBatchId, setExpireBatchId] = useState("");
@@ -75,7 +81,13 @@ export default function AdminDashboard() {
 
   const [theme, setTheme] = useState<"light" | "dark">("light");
 
-  const sessionQuery = useQuery({ queryKey: ["admin-session", authEnabled], queryFn: getAdminSession, enabled: authEnabled, retry: false });
+  // const sessionQuery = useQuery({ queryKey: ["admin-session", authEnabled], queryFn: getAdminSession, enabled: authEnabled, retry: false });
+  const sessionQuery = useQuery({
+    queryKey: ["admin-me", authEnabled],
+    queryFn: getAdminMe,
+    enabled: authEnabled,
+    retry: false,
+  });
   const canLoad = authEnabled && sessionQuery.isSuccess;
 
   const overviewQuery = useQuery({ queryKey: ["admin-overview"], queryFn: getAdminOverview, refetchInterval: POLL_MS, enabled: canLoad });
@@ -91,26 +103,26 @@ export default function AdminDashboard() {
 
 
   useEffect(() => {
-        const savedTheme = localStorage.getItem("tankup-theme") as "light" | "dark" | null;
+    const savedTheme = localStorage.getItem("tankup-theme") as "light" | "dark" | null;
 
-        if (savedTheme) {
-            setTheme(savedTheme);
-            document.documentElement.classList.toggle("dark", savedTheme === "dark");
-        } else {
-            const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-            const initialTheme = prefersDark ? "dark" : "light";
-            setTheme(initialTheme);
-            document.documentElement.classList.toggle("dark", initialTheme === "dark");
-        }
+    if (savedTheme) {
+      setTheme(savedTheme);
+      document.documentElement.classList.toggle("dark", savedTheme === "dark");
+    } else {
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const initialTheme = prefersDark ? "dark" : "light";
+      setTheme(initialTheme);
+      document.documentElement.classList.toggle("dark", initialTheme === "dark");
+    }
 
-    }, []);
+  }, []);
 
-    const toggleTheme = () => {
-        const nextTheme = theme === "light" ? "dark" : "light";
-        setTheme(nextTheme);
-        localStorage.setItem("tankup-theme", nextTheme);
-        document.documentElement.classList.toggle("dark", nextTheme === "dark");
-    };
+  const toggleTheme = () => {
+    const nextTheme = theme === "light" ? "dark" : "light";
+    setTheme(nextTheme);
+    localStorage.setItem("tankup-theme", nextTheme);
+    document.documentElement.classList.toggle("dark", nextTheme === "dark");
+  };
 
 
   const metricCards = useMemo(() => {
@@ -156,29 +168,63 @@ export default function AdminDashboard() {
     setConfirmState({ title, description, action });
   };
 
+  // const connectAdmin = async () => {
+  //   if (!secretInput.trim()) {
+  //     toast.error("Enter the admin secret first");
+  //     return;
+  //   }
+  //   setAdminSecret(secretInput);
+  //   setAuthEnabled(true);
+  //   try {
+  //     await queryClient.invalidateQueries({ queryKey: ["admin-session"] });
+  //     await sessionQuery.refetch();
+  //     toast.success("Admin access granted");
+  //   } catch (error) {
+  //     clearAdminSecret();
+  //     setAuthEnabled(false);
+  //     toast.error(error instanceof Error ? error.message : "Could not unlock admin dashboard");
+  //   }
+  // };
   const connectAdmin = async () => {
-    if (!secretInput.trim()) {
-      toast.error("Enter the admin secret first");
+    if (!username.trim() || !password.trim()) {
+      toast.error("Enter username and password");
       return;
     }
-    setAdminSecret(secretInput);
-    setAuthEnabled(true);
+
     try {
-      await queryClient.invalidateQueries({ queryKey: ["admin-session"] });
+      const data = await loginAdmin({
+        username: username.trim(),
+        password: password.trim(),
+      });
+
+      setAdminToken(data.access_token);
+      setAuthEnabled(true);
+
+      await queryClient.invalidateQueries({ queryKey: ["admin-me"] });
       await sessionQuery.refetch();
+
       toast.success("Admin access granted");
     } catch (error) {
-      clearAdminSecret();
+      clearAdminToken();
       setAuthEnabled(false);
-      toast.error(error instanceof Error ? error.message : "Could not unlock admin dashboard");
+      toast.error(error instanceof Error ? error.message : "Could not log in to admin dashboard");
     }
   };
 
+  // const logoutAdmin = () => {
+  //   clearAdminSecret();
+  //   setAuthEnabled(false);
+  //   setSelectedRequestId(null);
+  //   toast.success("Admin secret cleared");
+  // };
+
   const logoutAdmin = () => {
-    clearAdminSecret();
+    clearAdminToken();
     setAuthEnabled(false);
     setSelectedRequestId(null);
-    toast.success("Admin secret cleared");
+    setUsername("");
+    setPassword("");
+    toast.success("Admin logged out");
   };
 
   if (!authEnabled || sessionQuery.isError) {
@@ -188,9 +234,25 @@ export default function AdminDashboard() {
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-sm text-muted-foreground"><Shield className="h-4 w-4" /> Admin gate</div>
             <h1 className="text-2xl font-bold text-foreground">Unlock admin dashboard</h1>
-            <p className="text-sm text-muted-foreground">This page now expects the backend admin secret through the X-Admin-Secret header. Good. The front door should at least have a lock.</p>
+            {/* <p className="text-sm text-muted-foreground">This page now expects the backend admin secret through the X-Admin-Secret header. Good. The front door should at least have a lock.</p> */}
+            <p className="text-sm text-muted-foreground">
+              Sign in with your admin username and password. The dashboard now uses JWT auth, not the old shared secret.
+            </p>
           </div>
-          <Input value={secretInput} onChange={(e) => setSecretInput(e.target.value)} placeholder="Enter admin secret" type="password" />
+          {/* <Input value={secretInput} onChange={(e) => setSecretInput(e.target.value)} placeholder="Enter admin secret" type="password" /> */}
+          <div className="space-y-3">
+            <Input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Enter admin username"
+            />
+            <Input
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Enter admin password"
+              type="password"
+            />
+          </div>
           {sessionQuery.error ? <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-700 dark:text-red-300">{(sessionQuery.error as Error).message}</div> : null}
           <div className="flex gap-3">
             <Button onClick={connectAdmin}>Unlock</Button>
@@ -204,20 +266,23 @@ export default function AdminDashboard() {
   return (
     <div className="min-h-screen bg-background p-4 sm:p-6">
       <div className="mx-auto max-w-7xl space-y-6">
-      <div className="flex justify-end">
-                    <button
-                        onClick={toggleTheme}
-                        className="h-11 w-11 rounded-full border border-border bg-card flex items-center justify-center text-foreground hover:scale-105 transition"
-                        aria-label="Toggle theme"
-                    >
-                        {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-                    </button>
-                </div>
+        <div className="flex justify-end">
+          <button
+            onClick={toggleTheme}
+            className="h-11 w-11 rounded-full border border-border bg-card flex items-center justify-center text-foreground hover:scale-105 transition"
+            aria-label="Toggle theme"
+          >
+            {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+          </button>
+        </div>
         <div className="flex flex-col gap-4 rounded-3xl border bg-card p-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground"><Shield className="h-4 w-4" />Operations control room</div>
             <h1 className="text-2xl font-extrabold text-foreground sm:text-3xl">Admin Dashboard</h1>
-            <p className="text-sm text-muted-foreground">Hardened with a secret gate, tabular views, drill-downs, and confirmation rails for the scary buttons.</p>
+            {/* <p className="text-sm text-muted-foreground">Hardened with a secret gate, tabular views, drill-downs, and confirmation rails for the scary buttons.</p> */}
+            <p className="text-sm text-muted-foreground">
+              Hardened with JWT auth, tabular views, drill-downs, and confirmation rails for the scary buttons.
+            </p>
           </div>
           <div className="flex flex-wrap gap-3">
             <Button variant="outline" asChild><Link to="/"><ArrowLeft className="mr-2 h-4 w-4" />Back home</Link></Button>
