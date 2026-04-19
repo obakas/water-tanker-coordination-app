@@ -182,6 +182,48 @@ def _build_delivery_card(db: Session, delivery: DeliveryRecord) -> dict[str, Any
     }
 
 
+
+# def _resolve_request_status(db: Session, request: LiquidRequest) -> str:
+#     # PRIORITY → use request.status (already handled properly)
+#     if request.delivery_type == "priority":
+#         return request.status
+
+#     # BATCH → derive truth from delivery / batch / member
+
+#     # 1. Check delivery records (REAL truth)
+#     deliveries = (
+#         db.query(DeliveryRecord)
+#         .filter(DeliveryRecord.request_id == request.id)
+#         .order_by(DeliveryRecord.updated_at.desc(), DeliveryRecord.id.desc())
+#         .all()
+#     )
+
+#     if deliveries:
+#         latest = deliveries[0]
+#         return latest.delivery_status
+
+#     # 2. Check batch member
+#     member = (
+#         db.query(BatchMember)
+#         .filter(BatchMember.request_id == request.id)
+#         .order_by(BatchMember.id.desc())
+#         .first()
+#     )
+
+#     if member:
+#         if member.status:
+#             return member.status
+
+#         # 3. Check batch
+#         if member.batch_id:
+#             batch = db.query(Batch).filter(Batch.id == member.batch_id).first()
+#             if batch:
+#                 return batch.status
+
+#     # fallback
+#     return request.status
+
+
 def _build_request_item(item: LiquidRequest) -> dict[str, Any]:
     return {
         "id": item.id,
@@ -199,6 +241,24 @@ def _build_request_item(item: LiquidRequest) -> dict[str, Any]:
         "created_at": _iso(item.created_at),
         "updated_at": _iso(item.updated_at),
     }
+
+# def _build_request_item(db: Session, item: LiquidRequest) -> dict[str, Any]:
+#     return {
+#         "id": item.id,
+#         "user_id": item.user_id,
+#         "delivery_type": item.delivery_type,
+#         "status": _resolve_request_status(db, item),  # ✅ FIXED
+#         "volume_liters": item.volume_liters,
+#         "is_asap": item.is_asap,
+#         "scheduled_for": _iso(item.scheduled_for),
+#         "latitude": item.latitude,
+#         "longitude": item.longitude,
+#         "retry_count": item.retry_count,
+#         "assignment_failed_reason": item.assignment_failed_reason,
+#         "refund_eligible": item.refund_eligible,
+#         "created_at": _iso(item.created_at),
+#         "updated_at": _iso(item.updated_at),
+#     }
 
 
 def _search_like(value: str) -> str:
