@@ -24,8 +24,7 @@ from app.services.batch_service import cleanup_expired_members
 from app.services.delivery_service import _finalize_job_if_possible
 from app.services.refund_service import execute_member_refund
 from app.utils.status_rules import ensure_valid_transition, BATCH_STATUS_TRANSITIONS, TANKER_STATUS_TRANSITIONS
-from app.api.deps import get_current_admin_user
-from app.models.admin_user import AdminUser
+from app.api.deps import require_admin
 
 
 def require_admin_secret(x_admin_secret: str | None = Header(default=None)) -> str:
@@ -391,7 +390,7 @@ def admin_session():
 # ---------- read endpoints ----------
 
 @router.get("/overview")
-def admin_overview(db: Session = Depends(get_db), current_admin: AdminUser = Depends(get_current_admin_user)):
+def admin_overview(db: Session = Depends(get_db), current_admin: dict = Depends(require_admin)):
     batch_status_counts = {
         status: count
         for status, count in db.query(Batch.status, func.count(Batch.id)).group_by(Batch.status).all()
@@ -446,7 +445,7 @@ def admin_overview(db: Session = Depends(get_db), current_admin: AdminUser = Dep
 
 
 @router.get("/live")
-def admin_live(limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db), current_admin: AdminUser = Depends(get_current_admin_user)):
+def admin_live(limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db), current_admin: dict = Depends(require_admin)):
     active_batches = (
         db.query(Batch)
         .filter(Batch.status.in_(list(ACTIVE_BATCH_STATUSES)))
@@ -492,7 +491,7 @@ def admin_requests(
     status: str | None = Query(None),
     search: str | None = Query(None),
     db: Session = Depends(get_db),
-    current_admin: AdminUser = Depends(get_current_admin_user)
+    current_admin: dict = Depends(require_admin)
 ):
     query = db.query(LiquidRequest)
     if delivery_type:
@@ -514,7 +513,7 @@ def admin_requests(
 
 
 @router.get("/requests/{request_id}")
-def admin_request_detail(request_id: int, db: Session = Depends(get_db), current_admin: AdminUser = Depends(get_current_admin_user)):
+def admin_request_detail(request_id: int, db: Session = Depends(get_db), current_admin: dict = Depends(require_admin)):
     request = db.query(LiquidRequest).filter(LiquidRequest.id == request_id).first()
     if not request:
         raise HTTPException(status_code=404, detail="Request not found")
@@ -559,7 +558,7 @@ def admin_request_detail(request_id: int, db: Session = Depends(get_db), current
 
 
 @router.get("/payments")
-def admin_payments(limit: int = Query(50, ge=1, le=200), status: str | None = Query(None), search: str | None = Query(None), db: Session = Depends(get_db), current_admin: AdminUser = Depends(get_current_admin_user)):
+def admin_payments(limit: int = Query(50, ge=1, le=200), status: str | None = Query(None), search: str | None = Query(None), db: Session = Depends(get_db), current_admin: dict = Depends(require_admin)):
     query = db.query(Payment)
     if status:
         query = query.filter(Payment.status == status)
@@ -591,7 +590,7 @@ def admin_payments(limit: int = Query(50, ge=1, le=200), status: str | None = Qu
 
 
 @router.get("/tankers")
-def admin_tankers(limit: int = Query(50, ge=1, le=200), status: str | None = Query(None), search: str | None = Query(None), db: Session = Depends(get_db), current_admin: AdminUser = Depends(get_current_admin_user)):
+def admin_tankers(limit: int = Query(50, ge=1, le=200), status: str | None = Query(None), search: str | None = Query(None), db: Session = Depends(get_db), current_admin: dict = Depends(require_admin)):
     query = db.query(Tanker)
     if status:
         query = query.filter(Tanker.status == status)
@@ -616,7 +615,7 @@ def admin_deliveries(
     job_type: str | None = Query(None),
     search: str | None = Query(None),
     db: Session = Depends(get_db),
-    current_admin: AdminUser = Depends(get_current_admin_user)
+    current_admin: dict = Depends(require_admin)
 ):
     query = db.query(DeliveryRecord)
     if status:
@@ -644,13 +643,13 @@ def admin_deliveries(
 # ---------- write endpoints ----------
 
 @router.post("/maintenance/cleanup-expired")
-def trigger_cleanup(db: Session = Depends(get_db), current_admin: AdminUser = Depends(get_current_admin_user)):
+def trigger_cleanup(db: Session = Depends(get_db), current_admin: dict = Depends(require_admin)):
     cleanup_expired_members(db)
     return {"message": "Expired members cleanup triggered"}
 
 
 @router.post("/batches/{batch_id}/expire")
-def force_expire_batch(batch_id: int, refund_paid_members: bool = True, db: Session = Depends(get_db), current_admin: AdminUser = Depends(get_current_admin_user)):
+def force_expire_batch(batch_id: int, refund_paid_members: bool = True, db: Session = Depends(get_db), current_admin: dict = Depends(require_admin)):
     batch = db.query(Batch).filter(Batch.id == batch_id).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
@@ -689,7 +688,7 @@ def force_expire_batch(batch_id: int, refund_paid_members: bool = True, db: Sess
 
 
 @router.post("/batches/{batch_id}/offer/{tanker_id}")
-def force_offer_batch_to_tanker(batch_id: int, tanker_id: int, db: Session = Depends(get_db), current_admin: AdminUser = Depends(get_current_admin_user)):
+def force_offer_batch_to_tanker(batch_id: int, tanker_id: int, db: Session = Depends(get_db), current_admin: dict = Depends(require_admin)):
     batch = db.query(Batch).filter(Batch.id == batch_id).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
@@ -743,7 +742,7 @@ def force_offer_batch_to_tanker(batch_id: int, tanker_id: int, db: Session = Dep
 
 
 @router.post("/batch-members/{member_id}/refund")
-def admin_refund_member(member_id: int, db: Session = Depends(get_db), current_admin: AdminUser = Depends(get_current_admin_user)):
+def admin_refund_member(member_id: int, db: Session = Depends(get_db), current_admin: dict = Depends(require_admin)):
     member = db.query(BatchMember).filter(BatchMember.id == member_id).first()
     if not member:
         raise HTTPException(status_code=404, detail="Batch member not found")
@@ -756,7 +755,7 @@ def admin_refund_member(member_id: int, db: Session = Depends(get_db), current_a
 
 
 @router.post("/tankers/{tanker_id}/reset")
-def reset_tanker_availability(tanker_id: int, db: Session = Depends(get_db), current_admin: AdminUser = Depends(get_current_admin_user)):
+def reset_tanker_availability(tanker_id: int, db: Session = Depends(get_db), current_admin: dict = Depends(require_admin)):
     tanker = db.query(Tanker).filter(Tanker.id == tanker_id).first()
     if not tanker:
         raise HTTPException(status_code=404, detail="Tanker not found")
@@ -784,7 +783,7 @@ def reset_tanker_availability(tanker_id: int, db: Session = Depends(get_db), cur
 
 
 @router.post("/deliveries/{delivery_id}/complete-manual")
-def admin_complete_delivery_manually(delivery_id: int, payload: AdminDeliveryCompletePayload = Body(default=AdminDeliveryCompletePayload()), db: Session = Depends(get_db), current_admin: AdminUser = Depends(get_current_admin_user)):
+def admin_complete_delivery_manually(delivery_id: int, payload: AdminDeliveryCompletePayload = Body(default=AdminDeliveryCompletePayload()), db: Session = Depends(get_db), current_admin: dict = Depends(require_admin)):
     delivery = db.query(DeliveryRecord).filter(DeliveryRecord.id == delivery_id).first()
     if not delivery:
         raise HTTPException(status_code=404, detail="Delivery not found")
@@ -804,7 +803,7 @@ def admin_complete_delivery_manually(delivery_id: int, payload: AdminDeliveryCom
 
 
 @router.post("/deliveries/{delivery_id}/fail-manual")
-def admin_fail_delivery_manually(delivery_id: int, payload: AdminReasonPayload, db: Session = Depends(get_db), current_admin: AdminUser = Depends(get_current_admin_user)):
+def admin_fail_delivery_manually(delivery_id: int, payload: AdminReasonPayload, db: Session = Depends(get_db), current_admin: dict = Depends(require_admin)):
     delivery = db.query(DeliveryRecord).filter(DeliveryRecord.id == delivery_id).first()
     if not delivery:
         raise HTTPException(status_code=404, detail="Delivery not found")
@@ -818,7 +817,7 @@ def admin_fail_delivery_manually(delivery_id: int, payload: AdminReasonPayload, 
 
 
 @router.post("/deliveries/{delivery_id}/skip-manual")
-def admin_skip_delivery_manually(delivery_id: int, payload: AdminReasonPayload, db: Session = Depends(get_db), current_admin: AdminUser = Depends(get_current_admin_user)):
+def admin_skip_delivery_manually(delivery_id: int, payload: AdminReasonPayload, db: Session = Depends(get_db), current_admin: dict = Depends(require_admin)):
     delivery = db.query(DeliveryRecord).filter(DeliveryRecord.id == delivery_id).first()
     if not delivery:
         raise HTTPException(status_code=404, detail="Delivery not found")
@@ -845,7 +844,7 @@ def list_admin_audit_logs(
     entity_id: int | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
-    current_admin: AdminUser = Depends(get_current_admin_user)
+    current_admin: dict = Depends(require_admin)
 ):
     q = db.query(AdminAuditLog)
 

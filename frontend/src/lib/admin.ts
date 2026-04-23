@@ -1,6 +1,29 @@
 import { apiRequest } from "@/lib/api";
 
-const ADMIN_TOKEN_STORAGE_KEY = "water-admin-token";
+import { saveAdminToken } from "@/lib/adminAuth";
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
+export async function adminLogin(username: string, password: string) {
+  const response = await fetch(`${API_BASE_URL}/admin/login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ username, password }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.detail || "Admin login failed");
+  }
+
+  saveAdminToken(data.access_token);
+  return data;
+}
+
+const ADMIN_TOKEN_STORAGE_KEY = "admin_access_token";
 
 export const getAdminToken = () => localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) || "";
 export const setAdminToken = (token: string) => localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token.trim());
@@ -157,12 +180,12 @@ export interface AdminLiveResponse {
 }
 
 export const loginAdmin = (payload: { username: string; password: string }) =>
-  apiRequest<AdminLoginResponse>("/admin-auth/login", {
+  apiRequest<AdminLoginResponse>("/admin/login", {
     method: "POST",
     body: payload,
   });
 
-export const getAdminMe = () => adminRequest<AdminMeResponse>("/admin-auth/me");
+export const getAdminMe = () => adminRequest<AdminMeResponse>("/admin/me");
 
 export const getAdminOverview = () => adminRequest<AdminOverviewResponse>("/admin/overview");
 export const getAdminLive = (limit = 20) => adminRequest<AdminLiveResponse>(`/admin/live?limit=${limit}`);
