@@ -5,6 +5,8 @@ from app.core.security import verify_token
 
 from app.core.database import SessionLocal
 
+from jose import JWTError, jwt
+
 
 def get_db():
     db = SessionLocal()
