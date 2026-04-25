@@ -10,6 +10,8 @@ import DriverHelpModal from "@/components/driver/DriverHelpModal";
 import DeliveryHistoryTab from "@/components/driver/DeliveryHistoryTab";
 import { useDriverFlow } from "@/hooks/useDriverFlow";
 import { useDriverAuth } from "@/hooks/useDriverAuth";
+import { useDriverOfferAlarm } from "@/hooks/useDriverOfferAlarm";
+import { BellRing, Volume2, VolumeX } from "lucide-react";
 
 interface DriverViewProps {
   onBack: () => void;
@@ -95,13 +97,8 @@ function NextStepCard({
 const DriverView = ({ onBack }: DriverViewProps) => {
   const [showHelp, setShowHelp] = useState(false);
 
-  const {
-    driver,
-    isAuthenticated,
-    isHydrated,
-    loginDriver,
-    logoutDriver,
-  } = useDriverAuth();
+  const { driver, isAuthenticated, isHydrated, loginDriver, logoutDriver } =
+    useDriverAuth();
 
   // IMPORTANT:
   // Call hooks before any conditional return.
@@ -149,6 +146,61 @@ const DriverView = ({ onBack }: DriverViewProps) => {
     startLoading,
     nextInstruction,
   } = useDriverFlow(driver);
+
+  const { alertsEnabled, notificationPermission, enableAlerts, disableAlerts } =
+    useDriverOfferAlarm(incomingOffer);
+
+  const renderJobAlertBanner = () => {
+    if (!isAuthenticated) return null;
+
+    return (
+      <div className="rounded-2xl border bg-card p-4 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="rounded-full bg-primary/10 p-2 text-primary">
+              <BellRing className="h-5 w-5" />
+            </div>
+
+            <div>
+              <p className="text-sm font-semibold text-foreground">
+                Loud job alerts
+              </p>
+
+              <p className="text-xs text-muted-foreground">
+                {alertsEnabled
+                  ? notificationPermission === "granted"
+                    ? "Alarm sound + browser notifications are active for incoming jobs."
+                    : "Alarm sound is active. Browser notification permission is not granted."
+                  : "Enable this once so incoming offers can ring loudly while this page is open."}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={alertsEnabled ? disableAlerts : enableAlerts}
+            className={
+              alertsEnabled
+                ? "inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-4 text-sm font-medium"
+                : "inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground"
+            }
+          >
+            {alertsEnabled ? (
+              <>
+                <VolumeX className="h-4 w-4" />
+                Disable alarm
+              </>
+            ) : (
+              <>
+                <Volume2 className="h-4 w-4" />
+                Enable loud alerts
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   const renderDashboard = () => {
     if (isLoading && !incomingOffer && !activeJob && !currentStop) {
@@ -266,7 +318,6 @@ const DriverView = ({ onBack }: DriverViewProps) => {
             allowedActions={allowedActions}
             currentStopStatus={currentStop?.delivery_status ?? null}
             otpVerified={currentStop?.otp_verified ?? false}
-            
             otpInput={otpInput}
             setOtpInput={setOtpInput}
             meterStartReading={meterStartReading}
@@ -345,7 +396,11 @@ const DriverView = ({ onBack }: DriverViewProps) => {
         onOpenHelp={() => setShowHelp(true)}
       />
 
+      {/* <div className="mx-auto max-w-md p-5 space-y-4">
+        <div className="grid grid-cols-2 rounded-2xl border bg-card p-1"> */}
       <div className="mx-auto max-w-md p-5 space-y-4">
+        {renderJobAlertBanner()}
+
         <div className="grid grid-cols-2 rounded-2xl border bg-card p-1">
           <button
             onClick={() => setActiveTab("dashboard")}
