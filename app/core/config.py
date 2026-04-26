@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     PAYMENT_PROVIDER: str = "paystack"
     FRONTEND_URL: str = "http://localhost:5173"
 
+    WEB_PUSH_PRIVATE_KEY_FILE: str = "private_key.pem"
+    WEB_PUSH_PUBLIC_KEY_FILE: str = "public_key.pem"
+    WEB_PUSH_SUBJECT: str = "mailto:your-email@example.com"
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 

@@ -15,6 +15,7 @@ import { useClientFlow } from "@/hooks/useClientFlow";
 import type { ClientViewProps } from "@/types/client";
 import OrderHistoryTab from "@/components/client/OrderHistoryTab";
 import { useClientDeliveryAlerts } from "@/hooks/useClientDeliveryAlerts";
+import { useWebPushNotifications } from "@/hooks/useWebPushNotifications";
 
 const ClientView = ({ onBack }: ClientViewProps) => {
   const {
@@ -75,6 +76,16 @@ const ClientView = ({ onBack }: ClientViewProps) => {
     activeTab,
     setActiveTab,
   } = useClientFlow({ onBack });
+
+  const {
+    isSupported: webPushSupported,
+    isSubscribed: webPushSubscribed,
+    enableWebPush,
+    disableWebPush,
+  } = useWebPushNotifications({
+    userType: "client",
+    userId: null,
+  });
 
   const {
     alertsEnabled,
@@ -312,6 +323,26 @@ const ClientView = ({ onBack }: ClientViewProps) => {
                 )}
                 <span className="hidden sm:inline">
                   {alertsEnabled ? "Alerts on" : "Enable alerts"}
+                </span>
+              </button>
+
+              <button
+                onClick={webPushSubscribed ? disableWebPush : enableWebPush}
+                disabled={!webPushSupported}
+                className="flex items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                title={
+                  webPushSubscribed
+                    ? "Disable background notifications"
+                    : "Enable background notifications"
+                }
+              >
+                {webPushSubscribed ? (
+                  <BellOff className="h-4 w-4" />
+                ) : (
+                  <Bell className="h-4 w-4" />
+                )}
+                <span className="hidden sm:inline">
+                  {webPushSubscribed ? "Push on" : "Enable push"}
                 </span>
               </button>
             </div>

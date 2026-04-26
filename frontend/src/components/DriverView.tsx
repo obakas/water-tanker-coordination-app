@@ -12,6 +12,8 @@ import { useDriverFlow } from "@/hooks/useDriverFlow";
 import { useDriverAuth } from "@/hooks/useDriverAuth";
 import { useDriverOfferAlarm } from "@/hooks/useDriverOfferAlarm";
 import { BellRing, Volume2, VolumeX } from "lucide-react";
+import { Bell, BellOff } from "lucide-react";
+import { useWebPushNotifications } from "@/hooks/useWebPushNotifications";
 
 interface DriverViewProps {
   onBack: () => void;
@@ -94,11 +96,23 @@ function NextStepCard({
   );
 }
 
+
+
 const DriverView = ({ onBack }: DriverViewProps) => {
   const [showHelp, setShowHelp] = useState(false);
 
   const { driver, isAuthenticated, isHydrated, loginDriver, logoutDriver } =
     useDriverAuth();
+
+  const {
+    isSupported: webPushSupported,
+    isSubscribed: webPushSubscribed,
+    enableWebPush,
+    disableWebPush,
+  } = useWebPushNotifications({
+    userType: "driver",
+    userId: driver?.tankerId ?? null,
+  });
 
   // IMPORTANT:
   // Call hooks before any conditional return.
@@ -194,6 +208,29 @@ const DriverView = ({ onBack }: DriverViewProps) => {
               <>
                 <Volume2 className="h-4 w-4" />
                 Enable loud alerts
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={webPushSubscribed ? disableWebPush : enableWebPush}
+            disabled={!webPushSupported || !driver?.tankerId}
+            className={
+              webPushSubscribed
+                ? "inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-4 text-sm font-medium disabled:opacity-50"
+                : "inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
+            }
+          >
+            {webPushSubscribed ? (
+              <>
+                <BellOff className="h-4 w-4" />
+                Disable push
+              </>
+            ) : (
+              <>
+                <Bell className="h-4 w-4" />
+                {!driver?.tankerId ? "Login required" : "Enable push"}
               </>
             )}
           </button>
@@ -404,21 +441,20 @@ const DriverView = ({ onBack }: DriverViewProps) => {
         <div className="grid grid-cols-2 rounded-2xl border bg-card p-1">
           <button
             onClick={() => setActiveTab("dashboard")}
-            className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
-              activeTab === "dashboard"
+            className={`rounded-xl px-4 py-2 text-sm font-medium transition ${activeTab === "dashboard"
                 ? "bg-primary text-primary-foreground"
                 : "text-foreground"
-            }`}
+              }`}
           >
             Dashboard
           </button>
+
           <button
             onClick={() => setActiveTab("history")}
-            className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
-              activeTab === "history"
+            className={`rounded-xl px-4 py-2 text-sm font-medium transition ${activeTab === "history"
                 ? "bg-primary text-primary-foreground"
                 : "text-foreground"
-            }`}
+              }`}
           >
             Delivery History
           </button>
