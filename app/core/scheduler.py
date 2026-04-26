@@ -7,8 +7,20 @@ from app.services.assignment_service import process_expired_offers, process_prio
 from app.services.batch_monitor_service import process_all_active_batches
 from app.services.delivery_timeout_service import expire_overdue_deliveries
 from app.services.loading_timeout_service import expire_overdue_loading_jobs
+from app.services.late_arrival_service import flag_late_arrivals
 
 scheduler = BackgroundScheduler()
+
+def run_late_arrival_monitor():
+    db = SessionLocal()
+    try:
+        results = flag_late_arrivals(db)
+        if results:
+            print("Late arrival monitor tick:")
+            for item in results:
+                print(item)
+    finally:
+        db.close()
 
 
 def run_batch_monitor():
@@ -108,7 +120,16 @@ def start_scheduler():
             id="delivery_timeout_monitor_job",
             replace_existing=True,
         )
+        scheduler.add_job(
+            run_late_arrival_monitor,
+            trigger="interval",
+            minutes=5,
+            id="late_arrival_monitor_job",
+            replace_existing=True,
+        )
         scheduler.start()
+
+
 
 
 def stop_scheduler():

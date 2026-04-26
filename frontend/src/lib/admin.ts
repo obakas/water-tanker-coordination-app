@@ -3,25 +3,26 @@ import { apiRequest } from "@/lib/api";
 import { saveAdminToken } from "@/lib/adminAuth";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const ADMIN_SECRET = import.meta.env.VITE_ADMIN_SECRET || "dev-admin-secret";
 
-export async function adminLogin(username: string, password: string) {
-  const response = await fetch(`${API_BASE_URL}/admin/login`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ username, password }),
-  });
+// export async function adminLogin(username: string, password: string) {
+//   const response = await fetch(`${API_BASE_URL}/admin/login`, {
+//     method: "POST",
+//     headers: {
+//       "Content-Type": "application/json",
+//       "x-admin-secret": ADMIN_SECRET,
+//       body: JSON.stringify({ username, password }),
+//     });
 
-  const data = await response.json();
+//   const data = await response.json();
 
-  if (!response.ok) {
-    throw new Error(data.detail || "Admin login failed");
-  }
+//   if (!response.ok) {
+//     throw new Error(data.detail || "Admin login failed");
+//   }
 
-  saveAdminToken(data.access_token);
-  return data;
-}
+//   saveAdminToken(data.access_token);
+//   return data;
+// }
 
 const ADMIN_TOKEN_STORAGE_KEY = "admin_access_token";
 
@@ -29,18 +30,59 @@ export const getAdminToken = () => localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY)
 export const setAdminToken = (token: string) => localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token.trim());
 export const clearAdminToken = () => localStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
 
+// function adminRequest<T>(
+//   endpoint: string,
+//   options: {
+//     method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+//     body?: unknown;
+//   } = {}
+// ) {
+//   const token = getAdminToken();
+
+//   return apiRequest<T>(endpoint, {
+//     ...options,
+//     headers: token ? { Authorization: `Bearer ${token}` } : {},
+//   });
+// }
+
+// export async function adminRequest<T>(
+//   path: string,
+//   options: RequestInit = {}
+// ): Promise<T> {
+//   const response = await fetch(`${API_BASE_URL}${path}`, {
+//     ...options,
+//     headers: {
+//       "Content-Type": "application/json",
+//       "x-admin-secret": ADMIN_SECRET,
+//       ...(options.headers || {}),
+//     },
+//   });
+
+//   if (!response.ok) {
+//     const message = await response.text();
+//     throw new Error(message || "Admin request failed");
+//   }
+
+//   return response.json();
+// }
+
 function adminRequest<T>(
   endpoint: string,
   options: {
     method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
     body?: unknown;
+    headers?: Record<string, string>;
   } = {}
 ) {
   const token = getAdminToken();
 
   return apiRequest<T>(endpoint, {
     ...options,
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: {
+      "x-admin-secret": ADMIN_SECRET,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers || {}),
+    },
   });
 }
 
@@ -179,9 +221,34 @@ export interface AdminLiveResponse {
   priority_requests: AdminRequestItem[];
 }
 
+
+export interface AdminOperationAlert {
+  id: number;
+  alert_type: string;
+  severity: string;
+  job_type: string;
+  job_id: number;
+  request_id?: number | null;
+  batch_id?: number | null;
+  tanker_id?: number | null;
+  message: string;
+  status: string;
+  created_at?: string | null;
+  resolved_at?: string | null;
+}
+
+// export const loginAdmin = (payload: { username: string; password: string }) =>
+//   apiRequest<AdminLoginResponse>("/admin/login", {
+//     method: "POST",
+//     body: payload,
+//   });
+
 export const loginAdmin = (payload: { username: string; password: string }) =>
   apiRequest<AdminLoginResponse>("/admin/login", {
     method: "POST",
+    headers: {
+      "x-admin-secret": ADMIN_SECRET,
+    },
     body: payload,
   });
 
@@ -262,3 +329,14 @@ export const adminManualSkipDelivery = (deliveryId: number, reason: string) =>
     method: "POST",
     body: { reason },
   });
+
+
+export const getAdminOperationAlerts = (params?: { limit?: number; status?: string; severity?: string }) => {
+  const q = new URLSearchParams();
+
+  if (params?.limit) q.set("limit", String(params.limit));
+  if (params?.status) q.set("status", params.status);
+  if (params?.severity) q.set("severity", params.severity);
+
+  return adminRequest<{ items: AdminOperationAlert[] }>(`/admin/operation-alerts?${q.toString()}`);
+};

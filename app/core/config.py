@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     WEB_PUSH_PUBLIC_KEY_FILE: str = "public_key.pem"
     WEB_PUSH_SUBJECT: str = "mailto:your-email@example.com"
 
+    ADMIN_SECRET: str = "dev-admin-secret"
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 

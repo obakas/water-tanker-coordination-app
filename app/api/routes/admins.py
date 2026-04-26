@@ -25,6 +25,7 @@ from app.services.delivery_service import _finalize_job_if_possible
 from app.services.refund_service import execute_member_refund
 from app.utils.status_rules import ensure_valid_transition, BATCH_STATUS_TRANSITIONS, TANKER_STATUS_TRANSITIONS
 from app.api.deps import require_admin
+from app.models.operation_alert import OperationAlert
 
 
 def require_admin_secret(x_admin_secret: str | None = Header(default=None)) -> str:
@@ -182,65 +183,6 @@ def _build_delivery_card(db: Session, delivery: DeliveryRecord) -> dict[str, Any
 
 
 
-# def _resolve_request_status(db: Session, request: LiquidRequest) -> str:
-#     # PRIORITY → use request.status (already handled properly)
-#     if request.delivery_type == "priority":
-#         return request.status
-
-#     # BATCH → derive truth from delivery / batch / member
-
-#     # 1. Check delivery records (REAL truth)
-#     deliveries = (
-#         db.query(DeliveryRecord)
-#         .filter(DeliveryRecord.request_id == request.id)
-#         .order_by(DeliveryRecord.updated_at.desc(), DeliveryRecord.id.desc())
-#         .all()
-#     )
-
-#     if deliveries:
-#         latest = deliveries[0]
-#         return latest.delivery_status
-
-#     # 2. Check batch member
-#     member = (
-#         db.query(BatchMember)
-#         .filter(BatchMember.request_id == request.id)
-#         .order_by(BatchMember.id.desc())
-#         .first()
-#     )
-
-#     if member:
-#         if member.status:
-#             return member.status
-
-#         # 3. Check batch
-#         if member.batch_id:
-#             batch = db.query(Batch).filter(Batch.id == member.batch_id).first()
-#             if batch:
-#                 return batch.status
-
-#     # fallback
-#     return request.status
-
-
-# def _build_request_item(item: LiquidRequest) -> dict[str, Any]:
-#     return {
-#         "id": item.id,
-#         "user_id": item.user_id,
-#         "delivery_type": item.delivery_type,
-#         "status": item.status,
-#         "volume_liters": item.volume_liters,
-#         "is_asap": item.is_asap,
-#         "scheduled_for": _iso(item.scheduled_for),
-#         "latitude": item.latitude,
-#         "longitude": item.longitude,
-#         "retry_count": item.retry_count,
-#         "assignment_failed_reason": item.assignment_failed_reason,
-#         "refund_eligible": item.refund_eligible,
-#         "created_at": _iso(item.created_at),
-#         "updated_at": _iso(item.updated_at),
-#     }
-
 def _resolve_admin_request_status(db: Session, request: LiquidRequest) -> str:
     if request.delivery_type != "batch":
         return request.status
@@ -315,23 +257,6 @@ def _build_request_item(db: Session, item: LiquidRequest) -> dict[str, Any]:
         "updated_at": _iso(item.updated_at),
     }
 
-# def _build_request_item(db: Session, item: LiquidRequest) -> dict[str, Any]:
-#     return {
-#         "id": item.id,
-#         "user_id": item.user_id,
-#         "delivery_type": item.delivery_type,
-#         "status": _resolve_request_status(db, item),  # ✅ FIXED
-#         "volume_liters": item.volume_liters,
-#         "is_asap": item.is_asap,
-#         "scheduled_for": _iso(item.scheduled_for),
-#         "latitude": item.latitude,
-#         "longitude": item.longitude,
-#         "retry_count": item.retry_count,
-#         "assignment_failed_reason": item.assignment_failed_reason,
-#         "refund_eligible": item.refund_eligible,
-#         "created_at": _iso(item.created_at),
-#         "updated_at": _iso(item.updated_at),
-#     }
 
 
 def _search_like(value: str) -> str:
@@ -952,3 +877,45 @@ def list_admin_audit_logs(
 @router.get("/session", dependencies=[Depends(require_admin)])
 def admin_session():
     return {"ok": True}
+
+
+@router.get("/operation-alerts", dependencies=[Depends(require_admin)])
+def get_operation_alerts(
+    status_filter: str | None = Query(default="open", alias="status"),
+    severity: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=300),
+    db: Session = Depends(get_db),
+):
+    query = db.query(OperationAlert)
+
+    if status_filter:
+        query = query.filter(OperationAlert.status == status_filter)
+
+    if severity:
+        query = query.filter(OperationAlert.severity == severity)
+
+    alerts = (
+        query.order_by(OperationAlert.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    return {
+        "items": [
+            {
+                "id": alert.id,
+                "alert_type": alert.alert_type,
+                "severity": alert.severity,
+                "job_type": alert.job_type,
+                "job_id": alert.job_id,
+                "request_id": alert.request_id,
+                "batch_id": alert.batch_id,
+                "tanker_id": alert.tanker_id,
+                "message": alert.message,
+                "status": alert.status,
+                "created_at": alert.created_at.isoformat() if alert.created_at else None,
+                "resolved_at": alert.resolved_at.isoformat() if alert.resolved_at else None,
+            }
+            for alert in alerts
+        ]
+    }

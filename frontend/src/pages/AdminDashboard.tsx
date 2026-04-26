@@ -25,6 +25,7 @@ import {
   loginAdmin,
   setAdminToken,
   type AdminDeliveryCard,
+  getAdminOperationAlerts,
 } from "@/lib/admin";
 import { formatNigeriaDateTime } from "@/lib/datetime";
 import { toast } from "sonner";
@@ -98,10 +99,17 @@ export default function AdminDashboard() {
   const deliveriesQuery = useQuery({ queryKey: ["admin-deliveries", deliverySearch, deliveryStatus, deliveryType], queryFn: () => getAdminDeliveries({ limit: 100, search: deliverySearch, status: deliveryStatus || undefined, jobType: deliveryType || undefined }), refetchInterval: POLL_MS, enabled: canLoad });
   const requestDetailQuery = useQuery({ queryKey: ["admin-request-detail", selectedRequestId], queryFn: () => getAdminRequestDetail(selectedRequestId as number), enabled: canLoad && selectedRequestId !== null });
 
+  const operationAlertsQuery = useQuery({
+    queryKey: ["admin-operation-alerts"],
+    queryFn: () => getAdminOperationAlerts({ limit: 50, status: "open" }),
+    refetchInterval: POLL_MS,
+    enabled: canLoad,
+  });
+  
   const loading = canLoad && [overviewQuery, liveQuery, requestsQuery, paymentsQuery, tankersQuery, deliveriesQuery].some((query) => query.isLoading);
-  const anyError = [sessionQuery, overviewQuery, liveQuery, requestsQuery, paymentsQuery, tankersQuery, deliveriesQuery].find((query) => query.error);
+  const anyError = [sessionQuery, overviewQuery, liveQuery, requestsQuery, paymentsQuery, tankersQuery, deliveriesQuery, operationAlertsQuery].find((query) => query.error);
 
-
+  
   useEffect(() => {
     const savedTheme = localStorage.getItem("tankup-theme") as "light" | "dark" | null;
 
@@ -145,6 +153,7 @@ export default function AdminDashboard() {
       queryClient.invalidateQueries({ queryKey: ["admin-payments"] }),
       queryClient.invalidateQueries({ queryKey: ["admin-tankers"] }),
       queryClient.invalidateQueries({ queryKey: ["admin-deliveries"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin-operation-alerts"] }),
     ]);
   };
 
@@ -308,6 +317,66 @@ export default function AdminDashboard() {
             );
           })}
         </div>
+
+        <section className="rounded-2xl border bg-card p-4 sm:p-5 shadow-sm space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-foreground">Operations Alerts</h2>
+              <p className="text-sm text-muted-foreground">
+                Timeout and failure signals from the backend. This is your anti-zombie-request board.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => queryClient.invalidateQueries({ queryKey: ["admin-operation-alerts"] })}
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Refresh
+            </Button>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Alert</TableHead>
+                  <TableHead>Severity</TableHead>
+                  <TableHead>Job</TableHead>
+                  <TableHead>Tanker</TableHead>
+                  <TableHead>Message</TableHead>
+                  <TableHead>Created</TableHead>
+                </TableRow>
+              </TableHeader>
+
+              <TableBody>
+                {(operationAlertsQuery.data?.items || []).length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-sm text-muted-foreground">
+                      No open operation alerts. Beautiful silence — for now.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  (operationAlertsQuery.data?.items || []).map((alert) => (
+                    <TableRow key={alert.id}>
+                      <TableCell className="font-medium">{alert.alert_type}</TableCell>
+                      <TableCell>
+                        <StatusPill status={alert.severity} />
+                      </TableCell>
+                      <TableCell>
+                        {alert.job_type} #{alert.job_id}
+                      </TableCell>
+                      <TableCell>{alert.tanker_id ? `#${alert.tanker_id}` : "—"}</TableCell>
+                      <TableCell className="min-w-[260px] text-sm text-muted-foreground">
+                        {alert.message}
+                      </TableCell>
+                      <TableCell>{formatNigeriaDateTime(alert.created_at)}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </section>
 
         <div className="grid gap-6 xl:grid-cols-[1.35fr_0.95fr]">
           <section className="rounded-2xl border bg-card p-4 sm:p-5 shadow-sm space-y-4">
