@@ -1,4 +1,4 @@
-import { ArrowLeft, CircleHelp, LogOut, UserCircle2 } from "lucide-react";
+import { ArrowLeft, Bell, BellOff, CircleHelp, LogOut, UserCircle2 } from "lucide-react";
 import RequestStep from "@/components/client/RequestStep";
 import PaymentStep from "@/components/client/PaymentStep";
 import BatchStep from "@/components/client/BatchStep";
@@ -14,6 +14,7 @@ import ThemeToggle from "@/components/ui/ThemeToggle";
 import { useClientFlow } from "@/hooks/useClientFlow";
 import type { ClientViewProps } from "@/types/client";
 import OrderHistoryTab from "@/components/client/OrderHistoryTab";
+import { useClientDeliveryAlerts } from "@/hooks/useClientDeliveryAlerts";
 
 const ClientView = ({ onBack }: ClientViewProps) => {
   const {
@@ -74,6 +75,21 @@ const ClientView = ({ onBack }: ClientViewProps) => {
     activeTab,
     setActiveTab,
   } = useClientFlow({ onBack });
+
+  const {
+    alertsEnabled,
+    enableAlerts,
+    disableAlerts,
+  } = useClientDeliveryAlerts({
+    mode: requestMode,
+    batchStatus: liveBatch?.status,
+    deliveryStatus:
+      requestMode === "batch"
+        ? liveBatch?.member_delivery_status
+        : livePriorityRequest?.delivery_status,
+    requestStatus: livePriorityRequest?.request_status,
+    tankerStatus: livePriorityRequest?.tanker_status,
+  });
 
   const renderLiveStep = () => {
     switch (step) {
@@ -283,6 +299,21 @@ const ClientView = ({ onBack }: ClientViewProps) => {
               </button>
 
               <ThemeToggle />
+
+              <button
+                onClick={alertsEnabled ? disableAlerts : enableAlerts}
+                className="flex items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm hover:bg-muted"
+                title={alertsEnabled ? "Disable delivery alerts" : "Enable delivery alerts"}
+              >
+                {alertsEnabled ? (
+                  <BellOff className="h-4 w-4" />
+                ) : (
+                  <Bell className="h-4 w-4" />
+                )}
+                <span className="hidden sm:inline">
+                  {alertsEnabled ? "Alerts on" : "Enable alerts"}
+                </span>
+              </button>
             </div>
           </div>
 
@@ -291,8 +322,8 @@ const ClientView = ({ onBack }: ClientViewProps) => {
               <button
                 onClick={() => setActiveTab("request")}
                 className={`rounded-xl px-4 py-2 text-sm font-medium transition ${activeTab === "request"
-                    ? "bg-primary text-primary-foreground"
-                    : "text-foreground"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-foreground"
                   }`}
               >
                 New Order
@@ -300,8 +331,8 @@ const ClientView = ({ onBack }: ClientViewProps) => {
               <button
                 onClick={() => setActiveTab("history")}
                 className={`rounded-xl px-4 py-2 text-sm font-medium transition ${activeTab === "history"
-                    ? "bg-primary text-primary-foreground"
-                    : "text-foreground"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-foreground"
                   }`}
                 disabled={!currentUser}
               >
