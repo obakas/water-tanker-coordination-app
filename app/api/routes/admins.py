@@ -223,12 +223,86 @@ def _build_delivery_card(db: Session, delivery: DeliveryRecord) -> dict[str, Any
 #     return request.status
 
 
-def _build_request_item(item: LiquidRequest) -> dict[str, Any]:
+# def _build_request_item(item: LiquidRequest) -> dict[str, Any]:
+#     return {
+#         "id": item.id,
+#         "user_id": item.user_id,
+#         "delivery_type": item.delivery_type,
+#         "status": item.status,
+#         "volume_liters": item.volume_liters,
+#         "is_asap": item.is_asap,
+#         "scheduled_for": _iso(item.scheduled_for),
+#         "latitude": item.latitude,
+#         "longitude": item.longitude,
+#         "retry_count": item.retry_count,
+#         "assignment_failed_reason": item.assignment_failed_reason,
+#         "refund_eligible": item.refund_eligible,
+#         "created_at": _iso(item.created_at),
+#         "updated_at": _iso(item.updated_at),
+#     }
+
+def _resolve_admin_request_status(db: Session, request: LiquidRequest) -> str:
+    if request.delivery_type != "batch":
+        return request.status
+
+    member = (
+        db.query(BatchMember)
+        .filter(BatchMember.request_id == request.id)
+        .order_by(BatchMember.id.desc())
+        .first()
+    )
+
+    if not member:
+        return request.status
+
+    delivery = (
+        db.query(DeliveryRecord)
+        .filter(
+            DeliveryRecord.job_type == "batch",
+            or_(
+                DeliveryRecord.member_id == member.id,
+                DeliveryRecord.batch_member_id == member.id,
+                DeliveryRecord.request_id == request.id,
+            ),
+        )
+        .order_by(DeliveryRecord.updated_at.desc(), DeliveryRecord.id.desc())
+        .first()
+    )
+
+    if delivery:
+        if delivery.delivery_status == "delivered":
+            return "completed"
+        if delivery.delivery_status == "failed":
+            return "failed"
+        if delivery.delivery_status == "skipped":
+            return "skipped"
+        if delivery.delivery_status in {"en_route", "arrived", "measuring", "awaiting_otp"}:
+            return delivery.delivery_status
+
+    if member.status == "delivered":
+        return "completed"
+
+    if member.status in {"failed", "skipped", "withdrawn", "expired"}:
+        return member.status
+
+    batch = db.query(Batch).filter(Batch.id == member.batch_id).first() if member.batch_id else None
+
+    if batch:
+        if batch.status == "completed":
+            return "completed"
+        if batch.status in {"partially_completed", "failed", "expired", "delivering", "arrived", "loading", "assigned"}:
+            return batch.status
+
+    return request.status
+
+
+def _build_request_item(db: Session, item: LiquidRequest) -> dict[str, Any]:
     return {
         "id": item.id,
         "user_id": item.user_id,
         "delivery_type": item.delivery_type,
-        "status": item.status,
+        "status": _resolve_admin_request_status(db, item),
+        "raw_request_status": item.status,
         "volume_liters": item.volume_liters,
         "is_asap": item.is_asap,
         "scheduled_for": _iso(item.scheduled_for),
@@ -480,7 +554,8 @@ def admin_live(limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_d
         "batches": [_build_batch_card(db, item) for item in active_batches],
         "tankers": [_build_tanker_card(db, item) for item in active_tankers],
         "deliveries": [_build_delivery_card(db, item) for item in active_deliveries],
-        "priority_requests": [_build_request_item(request) for request in active_requests],
+        # "priority_requests": [_build_request_item(request) for request in active_requests],
+        "priority_requests": [_build_request_item(db, request) for request in active_requests],
     }
 
 
@@ -509,7 +584,8 @@ def admin_requests(
             )
         )
     requests = query.order_by(LiquidRequest.created_at.desc(), LiquidRequest.id.desc()).limit(limit).all()
-    return {"items": [_build_request_item(item) for item in requests]}
+    # return {"items": [_build_request_item(item) for item in requests]}
+    return {"items": [_build_request_item(db, item) for item in requests]}
 
 
 @router.get("/requests/{request_id}")
@@ -526,7 +602,8 @@ def admin_request_detail(request_id: int, db: Session = Depends(get_db), current
     tanker = db.query(Tanker).filter(Tanker.id == batch.tanker_id).first() if batch and batch.tanker_id else None
 
     return {
-        "request": _build_request_item(request),
+        # "request": _build_request_item(request),
+        "request": _build_request_item(db, request),
         "user": {
             "id": user.id,
             "name": user.name,
