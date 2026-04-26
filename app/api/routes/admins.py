@@ -19,13 +19,17 @@ from app.models.payment import Payment
 from app.models.request import LiquidRequest
 from app.models.tanker import Tanker
 from app.models.user import User
-from app.services.assignment_service import create_job_offer
 from app.services.batch_service import cleanup_expired_members
 from app.services.delivery_service import _finalize_job_if_possible
 from app.services.refund_service import execute_member_refund
 from app.utils.status_rules import ensure_valid_transition, BATCH_STATUS_TRANSITIONS, TANKER_STATUS_TRANSITIONS
 from app.api.deps import require_admin
 from app.models.operation_alert import OperationAlert
+from app.services.assignment_service import (
+    create_job_offer,
+    retry_batch_assignment,
+    retry_priority_assignment,
+)
 
 
 def require_admin_secret(x_admin_secret: str | None = Header(default=None)) -> str:
@@ -918,4 +922,53 @@ def get_operation_alerts(
             }
             for alert in alerts
         ]
+    }
+
+@router.post("/operation-alerts/{alert_id}/reassign", dependencies=[Depends(require_admin)])
+def admin_reassign_from_operation_alert(
+    alert_id: int,
+    db: Session = Depends(get_db),
+):
+    alert = db.query(OperationAlert).filter(OperationAlert.id == alert_id).first()
+
+    if not alert:
+        raise HTTPException(status_code=404, detail="Operation alert not found")
+
+    if alert.alert_type != "loading_timeout":
+        raise HTTPException(
+            status_code=400,
+            detail="Only loading_timeout alerts support reassignment",
+        )
+
+    excluded_tanker_ids = [alert.tanker_id] if alert.tanker_id else []
+
+    if alert.job_type == "batch":
+        if not alert.batch_id:
+            raise HTTPException(status_code=400, detail="Alert has no batch_id")
+
+        result = retry_batch_assignment(
+            db,
+            alert.batch_id,
+            excluded_tanker_ids=excluded_tanker_ids,
+        )
+
+    elif alert.job_type == "priority":
+        if not alert.request_id:
+            raise HTTPException(status_code=400, detail="Alert has no request_id")
+
+        result = retry_priority_assignment(
+            db,
+            alert.request_id,
+            excluded_tanker_ids=excluded_tanker_ids,
+            failure_reason="manual_admin_reassign_after_loading_timeout",
+        )
+
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported job_type: {alert.job_type}")
+
+    return {
+        "success": True,
+        "alert_id": alert.id,
+        "message": "Manual reassignment attempt completed",
+        "result": result,
     }

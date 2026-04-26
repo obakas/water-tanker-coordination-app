@@ -123,7 +123,8 @@ def start_scheduler():
         scheduler.add_job(
             run_late_arrival_monitor,
             trigger="interval",
-            minutes=5,
+            # minutes=5,
+            seconds=30,
             id="late_arrival_monitor_job",
             replace_existing=True,
         )

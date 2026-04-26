@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.models.batch import Batch
 from app.models.request import LiquidRequest
-from app.services.time_policy import LATE_ARRIVAL_ALERT_MINUTES
+from app.utils.time_policy import LATE_ARRIVAL_ALERT_MINUTES
+from app.services.operation_alert_service import create_operation_alert
 
 
 def flag_late_arrivals(db: Session) -> list[dict]:
@@ -45,6 +46,16 @@ def flag_late_arrivals(db: Session) -> list[dict]:
             "alert": "late_arrival",
             "delivering_started_at": batch.delivering_started_at.isoformat(),
         })
+        create_operation_alert(
+            db,
+            alert_type="late_arrival",
+            severity="warning",
+            job_type="batch",
+            job_id=batch.id,
+            batch_id=batch.id,
+            tanker_id=batch.tanker_id,
+            message=f"Batch #{batch.id} has been delivering for longer than expected.",
+        )
 
     for request in late_priorities:
         results.append({
@@ -54,5 +65,17 @@ def flag_late_arrivals(db: Session) -> list[dict]:
             "alert": "late_arrival",
             "delivering_started_at": request.delivering_started_at.isoformat(),
         })
+        create_operation_alert(
+            db,
+            alert_type="late_arrival",
+            severity="warning",
+            job_type="priority",
+            job_id=request.id,
+            request_id=request.id,
+            tanker_id=request.tanker_id,
+            message=f"Priority request #{request.id} has been delivering for longer than expected.",
+        )
+
+    db.commit()
 
     return results

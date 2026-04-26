@@ -26,11 +26,15 @@ from app.services.delivery_service import (
     create_delivery_records_for_batch,
 )
 from app.utils.status_rules import ensure_valid_transition, TANKER_STATUS_TRANSITIONS, BATCH_STATUS_TRANSITIONS, REQUEST_STATUS_TRANSITIONS
+from app.utils.time_policy import LOADING_TIMEOUT_MINUTES, OFFER_ACCEPT_TIMEOUT_SECONDS
+
+OFFER_TTL_SECONDS = OFFER_ACCEPT_TIMEOUT_SECONDS
+LOADING_WINDOW_MINUTES = LOADING_TIMEOUT_MINUTES
 
 router = APIRouter(prefix="/tankers", tags=["Tankers"])
 
-OFFER_TTL_SECONDS = 60
-LOADING_WINDOW_MINUTES = 90
+# OFFER_TTL_SECONDS = 60
+# LOADING_WINDOW_MINUTES = 90
 ACTIVE_JOB_BATCH_STATUSES = {"assigned", "loading", "delivering", "arrived"}
 ACTIVE_JOB_REQUEST_STATUSES = {"assigned", "loading", "delivering", "arrived"}
 RESOLVED_DELIVERY_STATUSES = {"delivered", "failed", "skipped"}

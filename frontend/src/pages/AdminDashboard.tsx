@@ -26,6 +26,7 @@ import {
   setAdminToken,
   type AdminDeliveryCard,
   getAdminOperationAlerts,
+  adminReassignOperationAlert,
 } from "@/lib/admin";
 import { formatNigeriaDateTime } from "@/lib/datetime";
 import { toast } from "sonner";
@@ -105,11 +106,11 @@ export default function AdminDashboard() {
     refetchInterval: POLL_MS,
     enabled: canLoad,
   });
-  
+
   const loading = canLoad && [overviewQuery, liveQuery, requestsQuery, paymentsQuery, tankersQuery, deliveriesQuery].some((query) => query.isLoading);
   const anyError = [sessionQuery, overviewQuery, liveQuery, requestsQuery, paymentsQuery, tankersQuery, deliveriesQuery, operationAlertsQuery].find((query) => query.error);
 
-  
+
   useEffect(() => {
     const savedTheme = localStorage.getItem("tankup-theme") as "light" | "dark" | null;
 
@@ -345,13 +346,14 @@ export default function AdminDashboard() {
                   <TableHead>Tanker</TableHead>
                   <TableHead>Message</TableHead>
                   <TableHead>Created</TableHead>
+                  <TableHead>Action</TableHead>
                 </TableRow>
               </TableHeader>
 
               <TableBody>
                 {(operationAlertsQuery.data?.items || []).length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-sm text-muted-foreground">
+                    <TableCell colSpan={7} className="text-sm text-muted-foreground">
                       No open operation alerts. Beautiful silence — for now.
                     </TableCell>
                   </TableRow>
@@ -370,6 +372,25 @@ export default function AdminDashboard() {
                         {alert.message}
                       </TableCell>
                       <TableCell>{formatNigeriaDateTime(alert.created_at)}</TableCell>
+                      <TableCell>
+                        {alert.alert_type === "loading_timeout" ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={isActionLoading}
+                            onClick={() =>
+                              runAction(
+                                () => adminReassignOperationAlert(alert.id),
+                                "Manual reassignment triggered"
+                              )
+                            }
+                          >
+                            Reassign
+                          </Button>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
