@@ -27,6 +27,8 @@ import {
   type AdminDeliveryCard,
   getAdminOperationAlerts,
   adminReassignOperationAlert,
+  adminCancelPriorityRequest,
+  adminForceOfferPriority,
 } from "@/lib/admin";
 import { formatNigeriaDateTime } from "@/lib/datetime";
 import { toast } from "sonner";
@@ -80,6 +82,10 @@ export default function AdminDashboard() {
   const [reasonModal, setReasonModal] = useState<{ type: "fail" | "skip"; delivery: AdminDeliveryCard } | null>(null);
   const [reasonText, setReasonText] = useState("");
   const [isActionLoading, setIsActionLoading] = useState(false);
+
+  const [offerPriorityRequestId, setOfferPriorityRequestId] = useState("");
+  const [offerPriorityTankerId, setOfferPriorityTankerId] = useState("");
+  const [cancelPriorityRequestId, setCancelPriorityRequestId] = useState("");
 
   const [theme, setTheme] = useState<"light" | "dark">("light");
 
@@ -373,7 +379,7 @@ export default function AdminDashboard() {
                       </TableCell>
                       <TableCell>{formatNigeriaDateTime(alert.created_at)}</TableCell>
                       <TableCell>
-                        {alert.alert_type === "loading_timeout" ? (
+                        {["loading_timeout", "offer_expiry_repeated_failure"].includes(alert.alert_type) ? (
                           <Button
                             size="sm"
                             variant="outline"
@@ -446,6 +452,55 @@ export default function AdminDashboard() {
             <div>
               <h2 className="text-lg font-bold text-foreground">Emergency controls</h2>
               <p className="text-sm text-muted-foreground">Manual tools for when real life decides to freestyle.</p>
+            </div>
+            <div className="rounded-xl border p-4 space-y-3">
+              <h3 className="font-semibold text-foreground">Force offer priority to tanker</h3>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Input
+                  value={offerPriorityRequestId}
+                  onChange={(e) => setOfferPriorityRequestId(e.target.value)}
+                  placeholder="Priority Request ID"
+                />
+                <Input
+                  value={offerPriorityTankerId}
+                  onChange={(e) => setOfferPriorityTankerId(e.target.value)}
+                  placeholder="Tanker ID"
+                />
+              </div>
+              <Button
+                disabled={isActionLoading || !offerPriorityRequestId || !offerPriorityTankerId}
+                onClick={() =>
+                  askConfirm(
+                    "Force offer priority",
+                    "This will push a priority request offer directly to the selected tanker.",
+                    () => adminForceOfferPriority(Number(offerPriorityRequestId), Number(offerPriorityTankerId))
+                  )
+                }
+              >
+                Send priority offer
+              </Button>
+            </div>
+
+            <div className="rounded-xl border p-4 space-y-3">
+              <h3 className="font-semibold text-foreground">Cancel priority request</h3>
+              <Input
+                value={cancelPriorityRequestId}
+                onChange={(e) => setCancelPriorityRequestId(e.target.value)}
+                placeholder="Priority Request ID"
+              />
+              <Button
+                variant="destructive"
+                disabled={isActionLoading || !cancelPriorityRequestId}
+                onClick={() =>
+                  askConfirm(
+                    "Cancel priority request",
+                    "This cancels the priority request, clears pending offers, frees the tanker, and marks it refund-eligible.",
+                    () => adminCancelPriorityRequest(Number(cancelPriorityRequestId), "Cancelled manually by admin")
+                  )
+                }
+              >
+                Cancel priority
+              </Button>
             </div>
             <div className="space-y-4">
               <div className="rounded-xl border p-4 space-y-3">

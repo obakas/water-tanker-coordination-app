@@ -29,7 +29,9 @@ from app.services.assignment_service import (
     create_job_offer,
     retry_batch_assignment,
     retry_priority_assignment,
+    mark_offer_declined,
 )
+from app.models.job_offer import JobOffer
 
 
 def require_admin_secret(x_admin_secret: str | None = Header(default=None)) -> str:
@@ -693,6 +695,157 @@ def force_expire_batch(batch_id: int, refund_paid_members: bool = True, db: Sess
     }
 
 
+
+@router.post("/requests/{request_id}/cancel")
+def admin_cancel_priority_request(
+    request_id: int,
+    payload: AdminReasonPayload,
+    db: Session = Depends(get_db),
+    current_admin: dict = Depends(require_admin),
+):
+    request = db.query(LiquidRequest).filter(LiquidRequest.id == request_id).first()
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    if request.delivery_type != "priority":
+        raise HTTPException(status_code=400, detail="Only priority requests can be cancelled here")
+
+    if request.status in {"completed", "cancelled", "failed"}:
+        raise HTTPException(status_code=400, detail=f"Request already resolved as '{request.status}'")
+
+    affected_tankers = (
+        db.query(Tanker)
+        .filter(
+            Tanker.pending_offer_type == "priority",
+            Tanker.pending_offer_id == request.id,
+        )
+        .all()
+    )
+
+    for tanker in affected_tankers:
+        offer = (
+            db.query(JobOffer)
+            .filter(
+                JobOffer.tanker_id == tanker.id,
+                JobOffer.job_type == "priority",
+                JobOffer.request_id == request.id,
+                JobOffer.response_type.is_(None),
+            )
+            .order_by(JobOffer.id.desc())
+            .first()
+        )
+
+        if offer:
+            mark_offer_declined(
+                db,
+                offer,
+                decline_reason=f"admin_cancelled_request:{payload.reason}",
+            )
+
+        tanker.pending_offer_type = None
+        tanker.pending_offer_id = None
+        tanker.offer_expires_at = None
+        tanker.current_request_id = None
+        tanker.is_available = True
+        tanker.status = "available"
+        db.add(tanker)
+
+    request.status = "cancelled"
+    request.assignment_failed_reason = f"admin_cancelled:{payload.reason}"
+    request.assignment_failed_at = _utcnow()
+    request.refund_eligible = True
+    db.add(request)
+
+    db.commit()
+    db.refresh(request)
+
+    return {
+        "message": "Priority request cancelled by admin",
+        "request_id": request.id,
+        "status": request.status,
+        "affected_tanker_ids": [t.id for t in affected_tankers],
+    }
+
+
+@router.post("/requests/{request_id}/offer/{tanker_id}")
+def force_offer_priority_to_tanker(
+    request_id: int,
+    tanker_id: int,
+    db: Session = Depends(get_db),
+    current_admin: dict = Depends(require_admin),
+):
+    request = db.query(LiquidRequest).filter(LiquidRequest.id == request_id).first()
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    if request.delivery_type != "priority":
+        raise HTTPException(status_code=400, detail="Only priority requests can be force-offered here")
+
+    if request.status in {"completed", "cancelled", "failed"}:
+        raise HTTPException(status_code=400, detail=f"Cannot offer resolved request in status '{request.status}'")
+
+    tanker = db.query(Tanker).filter(Tanker.id == tanker_id).first()
+    if not tanker:
+        raise HTTPException(status_code=404, detail="Tanker not found")
+
+    if tanker.current_request_id is not None:
+        raise HTTPException(status_code=400, detail="Tanker already has an active priority request")
+
+    if tanker.pending_offer_type or tanker.pending_offer_id:
+        raise HTTPException(status_code=400, detail="Tanker already has a pending offer")
+
+    existing_offer_tanker = (
+        db.query(Tanker)
+        .filter(
+            Tanker.pending_offer_type == "priority",
+            Tanker.pending_offer_id == request.id,
+        )
+        .first()
+    )
+
+    if existing_offer_tanker:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Request already has a pending offer with tanker #{existing_offer_tanker.id}",
+        )
+
+    tanker.pending_offer_type = "priority"
+    tanker.pending_offer_id = request.id
+    tanker.offer_expires_at = _utcnow() + timedelta(seconds=60)
+    tanker.is_available = False
+    tanker.status = "available"
+
+    request.status = "searching_driver"
+    request.assignment_started_at = request.assignment_started_at or _utcnow()
+    request.last_offer_at = _utcnow()
+    request.assignment_failed_reason = None
+    request.assignment_failed_at = None
+    request.refund_eligible = False
+
+    offer = create_job_offer(
+        db,
+        tanker_id=tanker.id,
+        job_type="priority",
+        request_id=request.id,
+        job_lat=request.latitude,
+        job_lon=request.longitude,
+    )
+
+    db.add(tanker)
+    db.add(request)
+    db.commit()
+    db.refresh(tanker)
+    db.refresh(request)
+
+    return {
+        "message": "Priority offer sent to tanker",
+        "request_id": request.id,
+        "tanker_id": tanker.id,
+        "offer_id": offer.id,
+        "offer_expires_at": _iso(tanker.offer_expires_at),
+    }
+
+    
 @router.post("/batches/{batch_id}/offer/{tanker_id}")
 def force_offer_batch_to_tanker(batch_id: int, tanker_id: int, db: Session = Depends(get_db), current_admin: dict = Depends(require_admin)):
     batch = db.query(Batch).filter(Batch.id == batch_id).first()
@@ -934,10 +1087,10 @@ def admin_reassign_from_operation_alert(
     if not alert:
         raise HTTPException(status_code=404, detail="Operation alert not found")
 
-    if alert.alert_type != "loading_timeout":
+    if alert.alert_type not in {"loading_timeout", "offer_expiry_repeated_failure"}:
         raise HTTPException(
             status_code=400,
-            detail="Only loading_timeout alerts support reassignment",
+            detail="Only loading_timeout and offer_expiry_repeated_failure alerts support reassignment",
         )
 
     excluded_tanker_ids = [alert.tanker_id] if alert.tanker_id else []
@@ -960,7 +1113,7 @@ def admin_reassign_from_operation_alert(
             db,
             alert.request_id,
             excluded_tanker_ids=excluded_tanker_ids,
-            failure_reason="manual_admin_reassign_after_loading_timeout",
+            failure_reason=f"manual_admin_reassign_after_{alert.alert_type}",
         )
 
     else:

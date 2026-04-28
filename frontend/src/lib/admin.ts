@@ -292,3 +292,14 @@ export const adminReassignOperationAlert = (alertId: number) =>
   adminRequest(`/admin/operation-alerts/${alertId}/reassign`, {
     method: "POST",
   });
+
+export const adminCancelPriorityRequest = (requestId: number, reason: string) =>
+  adminRequest(`/admin/requests/${requestId}/cancel`, {
+    method: "POST",
+    body: { reason },
+  });
+
+export const adminForceOfferPriority = (requestId: number, tankerId: number) =>
+  adminRequest(`/admin/requests/${requestId}/offer/${tankerId}`, {
+    method: "POST",
+  });

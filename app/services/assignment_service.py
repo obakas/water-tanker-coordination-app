@@ -18,17 +18,21 @@ from app.services.driver_scoring_service import (
     haversine_km,
     score_driver_for_batch,
 )
-# from app.services.delivery_service import (
-#     create_delivery_record_for_priority,
-#     create_delivery_records_for_batch,
-# )
+from app.services.operation_alert_service import create_operation_alert
+from app.utils.time_policy import (
+    OFFER_TIMEOUT_BLACKLIST_MINUTES, 
+    OFFER_EXPIRY_ALERT_AFTER_FAILURES,
+    OFFER_ACCEPT_TIMEOUT_SECONDS,
+    PRIORITY_ASSIGNMENT_TIMEOUT_MINUTES,
+    LOCATION_STALE_AFTER_MINUTES,)
 
 # MAX_BATCH_ASSIGNMENT_RADIUS_KM = 2.0
 MIN_BATCH_ASSIGNMENT_RADIUS_KM = 5.0
-LOCATION_STALE_AFTER_MINUTES = 3
-OFFER_TTL_SECONDS = 60
+# LOCATION_STALE_AFTER_MINUTES = 3
+# OFFER_TTL_SECONDS = 60
 MAX_PRIORITY_ASSIGNMENT_RETRIES = 5
-PRIORITY_ASSIGNMENT_TIMEOUT_MINUTES = 20
+# PRIORITY_ASSIGNMENT_TIMEOUT_MINUTES = 20
+
 
 
 def _has_recent_location(tanker: Tanker, *, max_age_minutes: int = LOCATION_STALE_AFTER_MINUTES) -> bool:
@@ -399,7 +403,8 @@ def assign_best_tanker_for_priority(
     # OFFER-FIRST FLOW
     tanker.pending_offer_type = "priority"
     tanker.pending_offer_id = request.id
-    tanker.offer_expires_at = datetime.utcnow() + timedelta(seconds=OFFER_TTL_SECONDS)
+    # tanker.offer_expires_at = datetime.utcnow() + timedelta(seconds=OFFER_TTL_SECONDS)
+    tanker.offer_expires_at = datetime.utcnow() + timedelta(seconds=OFFER_ACCEPT_TIMEOUT_SECONDS)
     tanker.status = "available"
     tanker.is_available = False
 
@@ -562,15 +567,146 @@ def retry_batch_assignment(
     return result
 
 
+def temporarily_blacklist_tanker_after_offer_timeout(tanker: Tanker) -> None:
+    tanker.paused_until = datetime.utcnow() + timedelta(
+        minutes=OFFER_TIMEOUT_BLACKLIST_MINUTES
+    )
+    tanker.status = "available"
+    tanker.is_available = True
+
+
+def count_offer_timeouts_for_job(
+    db: Session,
+    *,
+    job_type: str,
+    request_id: int | None = None,
+    batch_id: int | None = None,
+) -> int:
+    q = db.query(JobOffer).filter(
+        JobOffer.job_type == job_type,
+        JobOffer.response_type == "timeout",
+    )
+
+    if job_type == "priority":
+        q = q.filter(JobOffer.request_id == request_id)
+
+    if job_type == "batch":
+        q = q.filter(JobOffer.batch_id == batch_id)
+
+    return q.count()
+
+
+def maybe_create_offer_expiry_repeated_failure_alert(
+    db: Session,
+    *,
+    job_type: str,
+    job_id: int,
+    request_id: int | None = None,
+    batch_id: int | None = None,
+    tanker_id: int | None = None,
+    retry_result: dict | None = None,
+) -> None:
+    timeout_count = count_offer_timeouts_for_job(
+        db,
+        job_type=job_type,
+        request_id=request_id,
+        batch_id=batch_id,
+    )
+
+    retry_failed = not retry_result or retry_result.get("assigned") is False
+
+    if timeout_count < OFFER_EXPIRY_ALERT_AFTER_FAILURES and not retry_failed:
+        return
+
+    create_operation_alert(
+        db,
+        alert_type="offer_expiry_repeated_failure",
+        severity="critical" if timeout_count >= OFFER_EXPIRY_ALERT_AFTER_FAILURES else "warning",
+        job_type=job_type,
+        job_id=job_id,
+        request_id=request_id,
+        batch_id=batch_id,
+        tanker_id=tanker_id,
+        message=(
+            f"{job_type.title()} job #{job_id} has offer expiry/retry problems. "
+            f"Timeout count: {timeout_count}. "
+            f"Latest retry result: {retry_result}"
+        ),
+    )
+
+
+def expire_tanker_offer_and_recover(db: Session, tanker: Tanker) -> dict[str, Any]:
+    pending_type = tanker.pending_offer_type
+    pending_id = tanker.pending_offer_id
+
+    if not pending_type or not pending_id:
+        return {"expired": False, "reason": "no_pending_offer", "tanker_id": tanker.id}
+
+    offer = get_open_offer_for_tanker(db, tanker.id)
+    if offer:
+        mark_offer_timeout(db, offer)
+
+    clear_tanker_offer(db, tanker, make_available=True)
+    temporarily_blacklist_tanker_after_offer_timeout(tanker)
+    db.add(tanker)
+    db.flush()
+
+    retry_result = None
+
+    if pending_type == "priority":
+        retry_result = retry_priority_assignment(
+            db,
+            pending_id,
+            excluded_tanker_ids=[tanker.id],
+            failure_reason="offer_expired",
+        )
+
+        maybe_create_offer_expiry_repeated_failure_alert(
+            db,
+            job_type="priority",
+            job_id=pending_id,
+            request_id=pending_id,
+            tanker_id=tanker.id,
+            retry_result=retry_result,
+        )
+
+    elif pending_type == "batch":
+        retry_result = retry_batch_assignment(
+            db,
+            pending_id,
+            excluded_tanker_ids=[tanker.id],
+        )
+
+        maybe_create_offer_expiry_repeated_failure_alert(
+            db,
+            job_type="batch",
+            job_id=pending_id,
+            batch_id=pending_id,
+            tanker_id=tanker.id,
+            retry_result=retry_result,
+        )
+
+    db.commit()
+
+    return {
+        "expired": True,
+        "tanker_id": tanker.id,
+        "expired_offer_type": pending_type,
+        "expired_offer_id": pending_id,
+        "blacklisted_until": tanker.paused_until.isoformat() if tanker.paused_until else None,
+        "retry": retry_result,
+    }
+
 def process_expired_offers(db: Session) -> list[dict[str, Any]]:
     now = datetime.utcnow()
+
     expired_tankers = (
         db.query(Tanker)
         .filter(
             Tanker.pending_offer_type.is_not(None),
             Tanker.pending_offer_id.is_not(None),
             Tanker.offer_expires_at.is_not(None),
-            Tanker.offer_expires_at < now,
+            Tanker.offer_expires_at <= now,
         )
         .all()
     )
@@ -578,49 +714,7 @@ def process_expired_offers(db: Session) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
 
     for tanker in expired_tankers:
-        pending_type = tanker.pending_offer_type
-        pending_id = tanker.pending_offer_id
-
-        offer = get_open_offer_for_tanker(db, tanker.id)
-        if offer:
-            mark_offer_timeout(db, offer)
-
-        clear_tanker_offer(db, tanker, make_available=True)
-
-        if pending_type == "priority" and pending_id:
-            retry_result = retry_priority_assignment(
-                db,
-                pending_id,
-                excluded_tanker_ids=[tanker.id],
-                failure_reason="offer_expired",
-            )
-            results.append(
-                {
-                    "tanker_id": tanker.id,
-                    "expired_offer_type": pending_type,
-                    "expired_offer_id": pending_id,
-                    "retry": retry_result,
-                }
-            )
-            continue
-
-        if pending_type == "batch" and pending_id:
-            retry_result = retry_batch_assignment(
-                db,
-                pending_id,
-                excluded_tanker_ids=[tanker.id],
-            )
-            results.append(
-                {
-                    "tanker_id": tanker.id,
-                    "expired_offer_type": pending_type,
-                    "expired_offer_id": pending_id,
-                    "retry": retry_result,
-                }
-            )
-            continue
-
-        db.commit()
+        results.append(expire_tanker_offer_and_recover(db, tanker))
 
     return results
 
@@ -678,7 +772,8 @@ def assign_best_tanker_for_batch(
     # OFFER-FIRST FOR BATCH
     tanker.pending_offer_type = "batch"
     tanker.pending_offer_id = batch.id
-    tanker.offer_expires_at = datetime.utcnow() + timedelta(seconds=OFFER_TTL_SECONDS)
+    # tanker.offer_expires_at = datetime.utcnow() + timedelta(seconds=OFFER_TTL_SECONDS)
+    tanker.offer_expires_at = datetime.utcnow() + timedelta(seconds=OFFER_ACCEPT_TIMEOUT_SECONDS)
     tanker.status = "available"
     tanker.is_available = False
 

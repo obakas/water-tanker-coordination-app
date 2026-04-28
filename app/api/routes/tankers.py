@@ -20,6 +20,7 @@ from app.services.assignment_service import (
     mark_offer_timeout,
     retry_batch_assignment,
     retry_priority_assignment,
+    expire_tanker_offer_and_recover,
 )
 from app.services.delivery_service import (
     create_delivery_record_for_priority,
@@ -167,20 +168,23 @@ def ensure_one_active_job_rule(db: Session, tanker: Tanker, *, expected_batch_id
         raise HTTPException(status_code=409, detail="Tanker already has an active job")
 
 
+# def expire_pending_offer(db: Session, tanker: Tanker) -> None:
+#     pending_type = tanker.pending_offer_type
+#     pending_id = tanker.pending_offer_id
+#     offer = get_open_offer_for_tanker(db, tanker)
+#     if offer:
+#         mark_offer_timeout(db, offer)
+#     clear_tanker_offer(db, tanker, make_available=True)
+#     if pending_type == "priority" and pending_id:
+#         retry_priority_assignment(db, pending_id, excluded_tanker_ids=[tanker.id], failure_reason="offer_expired")
+#         return
+#     if pending_type == "batch" and pending_id:
+#         retry_batch_assignment(db, pending_id, excluded_tanker_ids=[tanker.id])
+#         return
+#     db.commit()
+
 def expire_pending_offer(db: Session, tanker: Tanker) -> None:
-    pending_type = tanker.pending_offer_type
-    pending_id = tanker.pending_offer_id
-    offer = get_open_offer_for_tanker(db, tanker)
-    if offer:
-        mark_offer_timeout(db, offer)
-    clear_tanker_offer(db, tanker, make_available=True)
-    if pending_type == "priority" and pending_id:
-        retry_priority_assignment(db, pending_id, excluded_tanker_ids=[tanker.id], failure_reason="offer_expired")
-        return
-    if pending_type == "batch" and pending_id:
-        retry_batch_assignment(db, pending_id, excluded_tanker_ids=[tanker.id])
-        return
-    db.commit()
+    expire_tanker_offer_and_recover(db, tanker)
 
 
 def build_priority_offer_payload(db: Session, request: LiquidRequest, seconds_left: int) -> dict[str, Any]:
