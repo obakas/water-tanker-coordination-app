@@ -18,6 +18,7 @@ from app.services.request_service import (
 from app.services.batch_orchestration_service import refresh_batch_state
 from app.models.DeliveryRecord import DeliveryRecord
 from app.models.tanker import Tanker
+from app.models.request import LiquidRequest
 
 
 def get_priority_request_live_flow(db: Session, request_id: int) -> dict[str, Any]:
@@ -90,6 +91,38 @@ def get_priority_request_live_flow(db: Session, request_id: int) -> dict[str, An
         "failure_reason": delivery.failure_reason if delivery else None,
         "notes": delivery.notes if delivery else None,
     }
+
+
+def get_active_priority_request_for_user_flow(
+    db: Session,
+    user_id: int,
+) -> dict[str, Any] | None:
+    active_statuses = {
+        "pending",
+        "paid",
+        "searching_driver",
+        "assigned",
+        "loading",
+        "delivering",
+        "arrived",
+        "cancel_requested",
+    }
+
+    request = (
+        db.query(LiquidRequest)
+        .filter(
+            LiquidRequest.user_id == user_id,
+            LiquidRequest.delivery_type == "priority",
+            LiquidRequest.status.in_(active_statuses),
+        )
+        .order_by(LiquidRequest.created_at.desc())
+        .first()
+    )
+
+    if not request:
+        return None
+
+    return get_priority_request_live_flow(db, request.id)
 
 
 def create_client_request_flow(db: Session, data: RequestCreate) -> dict[str, Any]:

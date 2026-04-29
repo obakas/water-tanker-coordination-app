@@ -49,6 +49,7 @@ const ClientView = ({ onBack }: ClientViewProps) => {
     handleDeliveryConfirmed,
     handleBackClick,
 
+    isRecoveringPriorityRequest,
     isSubmittingRequest,
     requestId,
     batchId,
@@ -375,7 +376,16 @@ const ClientView = ({ onBack }: ClientViewProps) => {
       </header>
 
       <main className="mx-auto max-w-md p-5">
-        {activeTab === "history" && currentUser ? (
+        {/* {activeTab === "history" && currentUser ? (
+          <OrderHistoryTab userId={currentUser.id} />
+        ) : (
+          renderLiveStep()
+        )} */}
+        {isRecoveringPriorityRequest ? (
+          <div className="rounded-2xl border bg-card p-5 text-sm text-muted-foreground">
+            Checking for your active priority delivery...
+          </div>
+        ) : activeTab === "history" && currentUser ? (
           <OrderHistoryTab userId={currentUser.id} />
         ) : (
           renderLiveStep()

@@ -3,9 +3,11 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.schemas.request import RequestCreate
-from app.services.client_flow_service import (create_client_request_flow,
-get_client_request_status_flow,
-get_priority_request_live_flow,
+from app.services.client_flow_service import (
+    create_client_request_flow,
+    get_client_request_status_flow,
+    get_priority_request_live_flow,
+    get_active_priority_request_for_user_flow,
 )
 
 router = APIRouter(prefix="/requests", tags=["requests"])
@@ -19,6 +21,25 @@ def create_request(payload: RequestCreate, db: Session = Depends(get_db)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create request: {str(e)}")
+
+@router.get("/users/{user_id}/active-priority")
+def get_active_priority_request_for_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+):
+    try:
+        active_request = get_active_priority_request_for_user_flow(db, user_id)
+        return {
+            "has_active_priority": active_request is not None,
+            "request": active_request,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch active priority request: {str(e)}",
+        )
     
 
 @router.get("/{request_id}/status")

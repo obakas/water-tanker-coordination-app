@@ -16,6 +16,7 @@ import {
 } from "@/lib/api";
 import { leaveBatchMember } from "@/lib/batches";
 import { useLivePriorityRequest } from "@/hooks/useLivePriorityRequest";
+import { fetchActivePriorityRequest } from "@/lib/requests";
 
 interface UseClientFlowParams {
   onBack: () => void;
@@ -88,6 +89,7 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("signup");
   const [activeTab, setActiveTab] = useState<"request" | "history">("request");
+  const [isRecoveringPriorityRequest, setIsRecoveringPriorityRequest] = useState(false);
   const {
     batch: liveBatch,
     isLoading: liveBatchLoading,
@@ -162,7 +164,16 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     if (!batch) return fallbackStep;
 
     const status = batch.status;
-    const memberDeliveryStatus = batch.member_delivery_status;
+    const memberDeliveryStatus = batch.member_delivery_status as
+      | "arrived"
+      | "pending"
+      | "en_route"
+      | "measuring"
+      | "awaiting_otp"
+      | "delivered"
+      | "failed"
+      | "skipped"
+      | null;
 
     if (memberDeliveryStatus === "failed" || memberDeliveryStatus === "skipped") {
       return "failed";
@@ -194,9 +205,9 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
       return "completed";
     }
 
-    if (status === "partially_completed") {
-      return memberDeliveryStatus === "delivered" ? "completed" : "partial";
-    }
+    // if (status === "partially_completed") {
+    //   return memberDeliveryStatus === "delivered" ? "completed" : "partial";
+    // }
 
     if (status === "failed") {
       return "failed";
@@ -247,6 +258,7 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     try {
       const parsedUser: UserResponse = JSON.parse(savedUser);
       setCurrentUser(parsedUser);
+      void recoverActivePriorityRequest(parsedUser);
     } catch {
       localStorage.removeItem(USER_KEY);
     }
@@ -341,6 +353,57 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     }
   };
 
+  const recoverActivePriorityRequest = async (user: UserResponse) => {
+    try {
+      setIsRecoveringPriorityRequest(true);
+
+      const response = await fetchActivePriorityRequest(user.id);
+
+      if (!response.has_active_priority || !response.request) {
+        return;
+      }
+
+      const active = response.request;
+
+      setRequestMode("priority");
+      setRequestId(active.request_id);
+      setBatchId(null);
+      setMemberId(null);
+      setPaymentDeadline(null);
+      setPriorityMode(active.is_asap ? "asap" : "scheduled");
+      setScheduledFor(active.scheduled_for ?? "");
+      setSelectedSize(active.planned_liters ?? null);
+      setOtp(active.otp ?? "");
+
+      const recoveredSession: ClientSession = {
+        requestId: active.request_id,
+        batchId: null,
+        memberId: null,
+        paymentDeadline: null,
+        requestMode: "priority",
+        selectedSize: active.planned_liters ?? null,
+        priorityMode: active.is_asap ? "asap" : "scheduled",
+        scheduledFor: active.scheduled_for ?? "",
+        otp: active.otp ?? "",
+      };
+
+      localStorage.setItem(CLIENT_SESSION_KEY, JSON.stringify(recoveredSession));
+
+      const nextStep = resolvePriorityClientStep(active, "tanker");
+      setStep(nextStep);
+
+      toast.success("Your active priority delivery has been restored.");
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Could not recover active priority request";
+      console.warn(message);
+    } finally {
+      setIsRecoveringPriorityRequest(false);
+    }
+  };
+
   const handleContinueToPayment = () => {
     if (!canContinueToPayment) {
       toast.error("Please complete your request details first");
@@ -352,30 +415,28 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
       setShowAuthModal(true);
       return;
     }
-
-    // setStep("request");
-    // setStep("payment")
-    // if(step=="request"){
-    //   setStep("requst");
-    // } else {
     setStep("payment");
-    // }
-
   };
+
+  // const handleAuthSuccess = (user: UserResponse) => {
+  //   setCurrentUser(user);
+  //   localStorage.setItem(USER_KEY, JSON.stringify(user));
+  //   setShowAuthModal(false);
+  //   toast.success(`Welcome, ${user.name}!`);
+  //   void recoverActivePriorityRequest(currentUser);
+  //   setStep("request");
+
+  // };
 
   const handleAuthSuccess = (user: UserResponse) => {
     setCurrentUser(user);
     localStorage.setItem(USER_KEY, JSON.stringify(user));
     setShowAuthModal(false);
     toast.success(`Welcome, ${user.name}!`);
-    // setStep("payment");
-    // if(handleContinueToPayment){
-    //   setStep("payment");
-    // } else {
-    //   setStep("request");
-    // }
-    setStep("request");
 
+    void recoverActivePriorityRequest(user);
+
+    setStep("payment");
   };
 
   const resetClientFlow = () => {
@@ -438,92 +499,6 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     }
   };
 
-  // const handlePayment = async () => {
-  //   if (!selectedSize) {
-  //     toast.error("Please select a tank size");
-  //     return;
-  //   }
-
-  //   if (
-  //     requestMode === "priority" &&
-  //     priorityMode === "scheduled" &&
-  //     !scheduledFor
-  //   ) {
-  //     toast.error("Please select an exact delivery date and time");
-  //     return;
-  //   }
-
-  //   if (!currentUser) {
-  //     toast.error("Please sign up or log in before making payment");
-  //     setAuthMode("signup");
-  //     setShowAuthModal(true);
-  //     return;
-  //   }
-
-  //   try {
-  //     setIsSubmittingRequest(true);
-
-  //     const coords = await getClientCoordinates();
-
-  //     const payload = {
-  //       user_id: currentUser.id,
-  //       liquid_id: 1,
-  //       volume_liters: selectedSize,
-  //       latitude: coords.latitude,
-  //       longitude: coords.longitude,
-  //       delivery_type: requestMode,
-  //       ...(requestMode === "priority"
-  //         ? priorityMode === "asap"
-  //           ? { is_asap: true }
-  //           : { is_asap: false, scheduled_for: scheduledFor }
-  //         : {}),
-  //     };
-
-  //     const response = (await createWaterRequest(
-  //       payload
-  //     )) as RequestResponseWithOtp;
-
-  //     const nextRequestId = response.request_id ?? null;
-  //     const nextBatchId = response.batch_id ?? null;
-  //     const nextMemberId = response.member_id ?? null;
-  //     const nextPaymentDeadline = response.payment_deadline ?? null;
-  //     const nextOtp = response.delivery_code ?? "";
-
-  //     setRequestId(nextRequestId);
-  //     setBatchId(nextBatchId);
-  //     setMemberId(nextMemberId);
-  //     setPaymentDeadline(nextPaymentDeadline);
-  //     setOtp(nextOtp);
-
-  //     const clientSession: ClientSession = {
-  //       requestId: nextRequestId,
-  //       batchId: nextBatchId,
-  //       memberId: nextMemberId,
-  //       paymentDeadline: nextPaymentDeadline,
-  //       requestMode,
-  //       selectedSize,
-  //       priorityMode,
-  //       scheduledFor,
-  //       otp: nextOtp,
-  //     };
-
-  //     localStorage.setItem(CLIENT_SESSION_KEY, JSON.stringify(clientSession));
-
-  //     toast.success("Payment confirmed and request created!");
-
-  //     if (requestMode === "batch") {
-  //       setStep("batch");
-  //     } else {
-  //       setStep("tanker");
-  //     }
-  //   } catch (error) {
-  //     const message =
-  //       error instanceof Error ? error.message : "Failed to create request";
-  //     toast.error(message);
-  //   } finally {
-  //     setIsSubmittingRequest(false);
-  //   }
-  // };
 
 
   const handlePayment = async () => {
@@ -784,6 +759,8 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     handleBackClick,
 
     isSubmittingRequest,
+    isRecoveringPriorityRequest,
+
     requestId,
     batchId,
     memberId,
