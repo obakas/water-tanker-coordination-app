@@ -7,6 +7,11 @@ from app.core.config import settings
 
 from alembic import context
 
+from app.models.user import User
+from app.models.tanker import Tanker
+from  app.models.admin_user import AdminUser
+from app.models.liquid import Liquid
+
 from app.core.database import Base
 from app.models.admin_audit_log import AdminAuditLog
 from app.models.batch_member import BatchMember
@@ -14,11 +19,11 @@ from app.models.batch import Batch
 from app.models.DeliveryRecord import DeliveryRecord
 from app.models.driver_metric import DriverMetric
 from app.models.job_offer import JobOffer
-from app.models.liquid import Liquid
+
 from app.models.order import Order
 from app.models.request import LiquidRequest
-from app.models.tanker import Tanker
-from app.models.user import User
+from app.models.operation_alert import OperationAlert
+
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -29,7 +34,11 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+config.set_main_option(
+    "sqlalchemy.url",
+    settings.DATABASE_URL.replace("%", "%%")
+)
 
 # add your model's MetaData object here
 # for 'autogenerate' support

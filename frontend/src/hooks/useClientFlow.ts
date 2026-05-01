@@ -418,16 +418,6 @@ export const useClientFlow = ({ onBack }: UseClientFlowParams) => {
     setStep("payment");
   };
 
-  // const handleAuthSuccess = (user: UserResponse) => {
-  //   setCurrentUser(user);
-  //   localStorage.setItem(USER_KEY, JSON.stringify(user));
-  //   setShowAuthModal(false);
-  //   toast.success(`Welcome, ${user.name}!`);
-  //   void recoverActivePriorityRequest(currentUser);
-  //   setStep("request");
-
-  // };
-
   const handleAuthSuccess = (user: UserResponse) => {
     setCurrentUser(user);
     localStorage.setItem(USER_KEY, JSON.stringify(user));
