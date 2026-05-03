@@ -2,6 +2,7 @@ import Constants from "expo-constants";
 
 const API_BASE_URL =
   (Constants.expoConfig?.extra?.API_BASE_URL as string) ||
+  process.env.EXPO_PUBLIC_API_BASE_URL ||
   "http://127.0.0.1:8000";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -10,15 +11,25 @@ interface RequestOptions {
   method?: HttpMethod;
   body?: unknown;
   headers?: Record<string, string>;
+  params?: Record<string, string | number | undefined>;
 }
 
 export async function apiRequest<T>(
   endpoint: string,
   options: RequestOptions = {}
 ): Promise<T> {
-  const { method = "GET", body, headers = {} } = options;
+  const { method = "GET", body, headers = {}, params } = options;
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  let url = `${API_BASE_URL}${endpoint}`;
+  if (params) {
+    const qs = Object.entries(params)
+      .filter(([, v]) => v !== undefined)
+      .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`)
+      .join("&");
+    if (qs) url += `?${qs}`;
+  }
+
+  const response = await fetch(url, {
     method,
     headers: { "Content-Type": "application/json", ...headers },
     body: body ? JSON.stringify(body) : undefined,
@@ -50,6 +61,42 @@ export async function apiRequest<T>(
   return data as T;
 }
 
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+export interface UserResponse {
+  id: number;
+  name: string;
+  phone: string;
+  address: string;
+}
+
+export interface DriverResponse {
+  id: number;
+  name: string;
+  phone: string;
+  tankerId: number;
+  status: string;
+  is_available: boolean;
+  is_online: boolean;
+}
+
+export const loginUser = (p: { phone: string }) =>
+  apiRequest<UserResponse>("/auth/login", { method: "POST", body: p });
+
+export const createUser = (p: { name: string; phone: string; address: string }) =>
+  apiRequest<UserResponse>("/users/", { method: "POST", body: p });
+
+export const driverLogin = (p: { phone: string }) =>
+  apiRequest<DriverResponse>("/auth/driver-login", { method: "POST", body: p });
+
+export const driverSignup = (p: { name: string; phone: string; tank_plate_number: string }) =>
+  apiRequest<DriverResponse>("/auth/driver-signup", { method: "POST", body: p });
+
+export const driverLogout = (tankerId: number) =>
+  apiRequest(`/auth/driver-logout/${tankerId}`, { method: "POST" });
+
+// ── Requests ──────────────────────────────────────────────────────────────────
+
 export type DeliveryType = "batch" | "priority";
 
 export interface CreateRequestPayload {
@@ -80,21 +127,119 @@ export interface CreateRequestResponse {
 export const createWaterRequest = (p: CreateRequestPayload) =>
   apiRequest<CreateRequestResponse>("/requests/", { method: "POST", body: p });
 
-export interface UserResponse {
-  id: number;
-  name: string;
-  phone: string;
-  address: string;
-}
+export const getRequestStatus = (requestId: number) =>
+  apiRequest<any>(`/requests/${requestId}/status`);
 
-export const createUser = (p: { name: string; phone: string; address: string }) =>
-  apiRequest<UserResponse>("/users/", { method: "POST", body: p });
+export const getPriorityRequestLive = (requestId: number) =>
+  apiRequest<any>(`/requests/${requestId}/live`);
 
-export const loginUser = (p: { phone: string }) =>
-  apiRequest<UserResponse>("/auth/login", { method: "POST", body: p });
+export const getActivePriorityRequest = (userId: number) =>
+  apiRequest<any>(`/requests/users/${userId}/active-priority`);
+
+// ── Batch Members ─────────────────────────────────────────────────────────────
 
 export const leaveBatchMember = (memberId: number) =>
   apiRequest(`/batch-members/${memberId}/leave`, { method: "POST" });
 
 export const confirmPayment = (memberId: number) =>
   apiRequest(`/batch-members/${memberId}/confirm-payment`, { method: "POST" });
+
+// ── Batches ───────────────────────────────────────────────────────────────────
+
+export const getBatchLive = (batchId: number, memberId?: number) =>
+  apiRequest<any>(`/batches/${batchId}/live`, {
+    params: memberId !== undefined ? { member_id: memberId } : undefined,
+  });
+
+// ── Tankers / Driver ──────────────────────────────────────────────────────────
+
+export const getIncomingOffer = (tankerId: number) =>
+  apiRequest<any>(`/tankers/${tankerId}/incoming-offer`);
+
+export const acceptOffer = (tankerId: number) =>
+  apiRequest<any>(`/tankers/${tankerId}/offers/accept`, { method: "POST" });
+
+export const rejectOffer = (tankerId: number) =>
+  apiRequest<any>(`/tankers/${tankerId}/offers/reject`, { method: "POST" });
+
+export const getCurrentJob = (tankerId: number) =>
+  apiRequest<any>(`/tankers/${tankerId}/current-job`);
+
+export const markBatchLoaded = (tankerId: number, batchId: number) =>
+  apiRequest<any>(`/tankers/${tankerId}/loaded/${batchId}`, { method: "POST" });
+
+export const markPriorityLoaded = (tankerId: number, requestId: number) =>
+  apiRequest<any>(`/tankers/${tankerId}/loaded-priority/${requestId}`, { method: "POST" });
+
+export const completeBatchDelivery = (tankerId: number, batchId: number) =>
+  apiRequest<any>(`/tankers/${tankerId}/complete/${batchId}`, { method: "POST" });
+
+export const completePriorityDelivery = (tankerId: number) =>
+  apiRequest<any>(`/tankers/${tankerId}/complete-priority`, { method: "POST" });
+
+export const updateTankerLocation = (tankerId: number, latitude: number, longitude: number) =>
+  apiRequest<any>(`/tankers/${tankerId}/location`, {
+    method: "POST",
+    body: { latitude, longitude },
+  });
+
+// ── Deliveries ────────────────────────────────────────────────────────────────
+
+export const getCurrentStop = (tankerId: number) =>
+  apiRequest<any>(`/deliveries/tankers/${tankerId}/current-stop`);
+
+export const arriveAtStop = (deliveryId: number, tankerId: number) =>
+  apiRequest<any>(`/deliveries/${deliveryId}/arrive`, {
+    method: "POST",
+    params: { tanker_id: tankerId },
+  });
+
+export const startMeasurement = (
+  deliveryId: number,
+  tankerId: number,
+  meterStartReading: number
+) =>
+  apiRequest<any>(`/deliveries/${deliveryId}/start-measurement`, {
+    method: "POST",
+    params: { tanker_id: tankerId },
+    body: { meter_start_reading: meterStartReading },
+  });
+
+export const finishMeasurement = (
+  deliveryId: number,
+  tankerId: number,
+  meterEndReading: number,
+  notes?: string
+) =>
+  apiRequest<any>(`/deliveries/${deliveryId}/finish-measurement`, {
+    method: "POST",
+    params: { tanker_id: tankerId },
+    body: { meter_end_reading: meterEndReading, notes },
+  });
+
+export const confirmOtp = (deliveryId: number, tankerId: number, otpCode: string) =>
+  apiRequest<any>(`/deliveries/${deliveryId}/confirm-otp`, {
+    method: "POST",
+    params: { tanker_id: tankerId },
+    body: { otp_code: otpCode },
+  });
+
+export const completeStop = (deliveryId: number, tankerId: number) =>
+  apiRequest<any>(`/deliveries/${deliveryId}/complete`, {
+    method: "POST",
+    params: { tanker_id: tankerId },
+  });
+
+export const failStop = (deliveryId: number, tankerId: number, reason: string) =>
+  apiRequest<any>(`/deliveries/${deliveryId}/fail`, {
+    method: "POST",
+    params: { tanker_id: tankerId },
+    body: { reason },
+  });
+
+export const skipStop = (deliveryId: number, tankerId: number, reason: string) =>
+  apiRequest<any>(`/deliveries/${deliveryId}/skip`, {
+    method: "POST",
+    params: { tanker_id: tankerId },
+    body: { reason },
+  });

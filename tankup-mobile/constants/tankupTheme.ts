@@ -1,38 +1,27 @@
 export const colors = {
-  background: "#F8FAFC",
-  foreground: "#111827",
-  card: "#FFFFFF",
-  border: "#E2E8F0",
-  input: "#E2E8F0",
-  muted: "#EEF2F7",
-  mutedForeground: "#64748B",
-  primary: "#0080FF",
-  primarySoft: "#E6F2FF",
-  success: "#2EB879",
-  successSoft: "#EAF8F1",
-  warning: "#F59E0B",
-  warningSoft: "#FFF7E6",
-  danger: "#EF4444",
-  dangerSoft: "#FEF2F2",
+  background: '#f8fafc',
+  foreground: '#111827',
+  card: '#ffffff',
+  border: '#e5e7eb',
+  muted: '#f1f5f9',
+  mutedForeground: '#64748b',
+  primary: '#0084ff',
+  primaryForeground: '#ffffff',
+  success: '#2eb67d',
+  warning: '#f59e0b',
+  destructive: '#ef4444',
 };
 
-export const radius = {
-  sm: 10,
-  md: 14,
-  lg: 18,
-  xl: 24,
+export const darkColors = {
+  background: '#0f172a',
+  foreground: '#f8fafc',
+  card: '#111c31',
+  border: '#24324a',
+  muted: '#1e293b',
+  mutedForeground: '#94a3b8',
+  primary: '#3b82f6',
+  primaryForeground: '#0f172a',
+  success: '#22c55e',
+  warning: '#f59e0b',
+  destructive: '#ef4444',
 };
-
-export const shadow = {
-  shadowColor: "#0F172A",
-  shadowOffset: { width: 0, height: 10 },
-  shadowOpacity: 0.08,
-  shadowRadius: 24,
-  elevation: 5,
-};
-
-export const TANK_SIZES = [500, 1000, 1500, 2000, 2500, 3000, 5000];
-export const BATCH_PRICE_PER_LITER = 5;
-export const PRIORITY_FULL_TANKER_PRICE = 50000;
-export const PLATFORM_BATCH_COMMISSION_RATE = 0.2;
-export const PLATFORM_PRIORITY_COMMISSION_RATE = 0.1;
