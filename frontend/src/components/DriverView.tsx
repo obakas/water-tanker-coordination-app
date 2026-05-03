@@ -100,6 +100,21 @@ function NextStepCard({
 
 const DriverView = ({ onBack }: DriverViewProps) => {
   const [showHelp, setShowHelp] = useState(false);
+  const [isOnline, setIsOnline] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    const stored = localStorage.getItem("driver_is_online");
+    return stored === null ? true : stored === "true";
+  });
+
+  const toggleOnline = () => {
+    setIsOnline((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("driver_is_online", String(next));
+      } catch {}
+      return next;
+    });
+  };
 
   const { driver, isAuthenticated, isHydrated, loginDriver, logoutDriver } =
     useDriverAuth();
@@ -431,6 +446,9 @@ const DriverView = ({ onBack }: DriverViewProps) => {
         onBack={onBack}
         onLogout={logoutDriver}
         onOpenHelp={() => setShowHelp(true)}
+        showOnlineToggle={isAuthenticated}
+        isOnline={isOnline}
+        onToggleOnline={toggleOnline}
       />
 
       {/* <div className="mx-auto max-w-md p-5 space-y-4">

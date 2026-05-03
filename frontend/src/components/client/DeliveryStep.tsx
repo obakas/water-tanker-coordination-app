@@ -203,8 +203,44 @@ export default function DeliveryStep({
     ? isCompleted || !!livePriorityRequest?.otp_verified || livePriorityRequest?.delivery_status === "delivered"
     : isCompleted || !!liveBatch?.otp_verified || liveBatch?.member_delivery_status === "delivered";
 
+  // Compute queue position for batch deliveries (client's spot in driver's route).
+  const queuePosition = (() => {
+    if (isPriority || !liveBatch) return null;
+    const myStatus = liveBatch.member_delivery_status;
+    if (!myStatus || myStatus === "delivered" || myStatus === "failed" || myStatus === "skipped") return null;
+    // Estimate: if driver is actively delivering and our stop isn't current, we're in queue.
+    // Use member_count as queue size hint; show "Next" when arrived/measuring/awaiting_otp.
+    const total = liveBatch.member_count ?? null;
+    if (myStatus === "arrived" || myStatus === "measuring" || myStatus === "awaiting_otp") {
+      return { label: "You're up now", position: 1, total };
+    }
+    if (myStatus === "en_route") {
+      return { label: "Driver is on the way to you", position: 1, total };
+    }
+    // pending — somewhere in queue
+    return { label: "In delivery queue", position: null as number | null, total };
+  })();
+
   return (
     <div className="space-y-6">
+      {queuePosition && (
+        <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground font-extrabold text-lg">
+              {queuePosition.position ?? "•"}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground">{queuePosition.label}</p>
+              <p className="text-xs text-muted-foreground">
+                {queuePosition.total
+                  ? `Batch of ${queuePosition.total} stop${queuePosition.total === 1 ? "" : "s"}`
+                  : "The driver will reach you shortly"}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="rounded-2xl border bg-card p-5 shadow-sm">
         <div className="space-y-2">
           <h2 className="text-xl font-bold text-foreground">

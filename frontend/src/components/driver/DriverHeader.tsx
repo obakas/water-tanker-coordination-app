@@ -8,6 +8,9 @@ interface DriverHeaderProps {
   onBack: () => void;
   onLogout: () => void;
   onOpenHelp: () => void;
+  isOnline?: boolean;
+  onToggleOnline?: () => void;
+  showOnlineToggle?: boolean;
 }
 
 const stepTitles: Record<DriverStep, string> = {
@@ -26,6 +29,9 @@ export const DriverHeader = ({
   onBack,
   onLogout,
   onOpenHelp,
+  isOnline = true,
+  onToggleOnline,
+  showOnlineToggle = false,
 }: DriverHeaderProps) => {
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-card/80 backdrop-blur-md">
@@ -55,6 +61,29 @@ export const DriverHeader = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {showOnlineToggle && onToggleOnline && (
+            <button
+              onClick={onToggleOnline}
+              type="button"
+              className={
+                isOnline
+                  ? "inline-flex h-9 items-center gap-2 rounded-full border border-success/30 bg-success/10 px-3 text-xs font-semibold text-success transition-colors hover:bg-success/20"
+                  : "inline-flex h-9 items-center gap-2 rounded-full border border-border bg-muted px-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted/80"
+              }
+              aria-label={isOnline ? "Go offline" : "Go online"}
+              title={isOnline ? "You're online — tap to go offline" : "You're offline — tap to go online"}
+            >
+              <span
+                className={
+                  isOnline
+                    ? "inline-block h-2 w-2 rounded-full bg-success animate-pulse"
+                    : "inline-block h-2 w-2 rounded-full bg-muted-foreground"
+                }
+              />
+              {isOnline ? "Online" : "Offline"}
+            </button>
+          )}
+
           <button
             onClick={onOpenHelp}
             type="button"
