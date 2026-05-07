@@ -8,6 +8,7 @@ import {
   Moon,
   Sun,
   UserCircle2,
+  History,
 } from "lucide-react-native";
 
 import type { AppTheme } from "@/components/ui/theme";
@@ -24,6 +25,7 @@ type Props = {
   onToggleTheme: () => void;
   alertsEnabled: boolean;
   onToggleAlerts: () => void;
+  onOpenHistory: () => void;
 };
 
 export function ClientHeader({
@@ -37,6 +39,7 @@ export function ClientHeader({
   onToggleTheme,
   alertsEnabled,
   onToggleAlerts,
+  onOpenHistory
 }: Props) {
   const iconColor = theme.foreground;
 
@@ -92,6 +95,7 @@ export function ClientHeader({
               <LogOut color={iconColor} size={19} />
             </Pressable>
           )}
+          
         </View>
       </View>
 
@@ -124,19 +128,21 @@ export function ClientHeader({
               </Text>
             )}
           </View>
+         
         </View>
+         {user && (
+            <Pressable
+              onPress={onOpenHistory}
+              style={{
+                borderColor: theme.border,
+                backgroundColor: theme.background,
+              }}
+              className="h-12 w-12 items-center justify-center rounded-2xl border"
+            >
+              <History color={theme.foreground} size={20} />
+            </Pressable>
+          )}
 
-        {/* <View
-          style={{ backgroundColor: theme.primary }}
-          className="rounded-2xl px-3 py-2"
-        > */}
-          {/* <Text
-            style={{ color: theme.primaryForeground }}
-            className="text-xs font-bold"
-          >
-            {stepLabel}
-          </Text> */}
-        {/* </View> */}
       </View>
     </View>
   );

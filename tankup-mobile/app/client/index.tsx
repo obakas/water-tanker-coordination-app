@@ -16,11 +16,13 @@ import { CompletedStep } from "@/components/client/CompletedStep";
 import { FailedStep } from "@/components/client/FailedStep";
 import { useAppTheme } from "@/hooks/useAppTheme";
 import { useState } from "react";
+import { OrderHistoryModal } from "@/components/client/OrderHistoryModal";
 
 export default function ClientFlow() {
   const flow = useClientFlow();
   const { theme, themeMode, toggleTheme } = useAppTheme();
   const [alertsEnabled, setAlertsEnabled] = useState(false);
+  const [historyVisible, setHistoryVisible] = useState(false);
 
 
   return (
@@ -36,6 +38,7 @@ export default function ClientFlow() {
         onToggleTheme={toggleTheme}
         alertsEnabled={alertsEnabled}
         onToggleAlerts={() => setAlertsEnabled((prev) => !prev)}
+        onOpenHistory={() => setHistoryVisible(true)}
       />
 
       <ScrollView
@@ -114,6 +117,13 @@ export default function ClientFlow() {
           <FailedStep onHome={flow.goRoleHome} />
         )}
       </ScrollView>
+
+      <OrderHistoryModal
+        visible={historyVisible}
+        onClose={() => setHistoryVisible(false)}
+        user={flow.user}
+        theme={theme}
+      />
     </SafeAreaView>
   );
 }

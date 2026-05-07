@@ -147,6 +147,42 @@ export async function confirmPayment(memberId: number) {
   });
 }
 
+export interface ClientHistoryItem {
+  request_id: number;
+  delivery_type: "batch" | "priority";
+  request_status: string;
+  volume_liters: number;
+  created_at: string | null;
+  completed_at: string | null;
+
+  batch_id: number | null;
+  member_id: number | null;
+  batch_status: string | null;
+  member_status: string | null;
+  payment_status: string | null;
+  refund_status: string | null;
+  amount_paid: number | null;
+
+  tanker_id: number | null;
+  driver_name: string | null;
+
+  delivery_id: number | null;
+  delivery_status: string | null;
+  planned_liters: number | null;
+  actual_liters_delivered: number | null;
+  otp_verified: boolean | null;
+  delivered_at: string | null;
+}
+
+export interface ClientHistoryResponse {
+  user_id: number;
+  total: number;
+  items: ClientHistoryItem[];
+}
+
+export function fetchClientHistory(userId: number) {
+  return apiRequest<ClientHistoryResponse>(`/history/users/${userId}`);
+}
 // type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 // interface RequestOptions {
