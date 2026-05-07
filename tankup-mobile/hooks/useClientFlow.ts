@@ -53,8 +53,9 @@ export function useClientFlow() {
   const [error, setError] = useState<string | null>(null);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [scheduledFor, setScheduledFor] = useState("");
 
-  
+
 
   const price =
     (size ?? 0) *
@@ -250,5 +251,7 @@ export function useClientFlow() {
     handleConfirmPayment,
     handleLeave,
     setStep,
+    scheduledFor,
+    setScheduledFor,
   };
 }

@@ -15,20 +15,27 @@ import { DeliveryStep } from "@/components/client/DeliveryStep";
 import { CompletedStep } from "@/components/client/CompletedStep";
 import { FailedStep } from "@/components/client/FailedStep";
 import { useAppTheme } from "@/hooks/useAppTheme";
-
+import { useState } from "react";
 
 export default function ClientFlow() {
   const flow = useClientFlow();
   const { theme, themeMode, toggleTheme } = useAppTheme();
+  const [alertsEnabled, setAlertsEnabled] = useState(false);
+
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
       <ClientHeader
         title={flow.titles[flow.step]}
+        // stepLabel={flow.step.toUpperCase()}
+        user={flow.user}
         onBack={flow.back}
+        onLogout={flow.goRoleHome}
         theme={theme}
         themeMode={themeMode}
         onToggleTheme={toggleTheme}
+        alertsEnabled={alertsEnabled}
+        onToggleAlerts={() => setAlertsEnabled((prev) => !prev)}
       />
 
       <ScrollView
@@ -50,6 +57,8 @@ export default function ClientFlow() {
             setPriorityMode={flow.setPriorityMode}
             onContinue={flow.handleSubmitRequest}
             loading={flow.loading}
+            scheduledFor={flow.scheduledFor}
+            setScheduledFor={flow.setScheduledFor}
           />
         )}
 
